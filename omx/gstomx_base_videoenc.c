@@ -36,6 +36,23 @@ GSTOMX_BOILERPLATE (GstOmxBaseVideoEnc, gst_omx_base_videoenc, GstOmxBaseFilter,
     GST_OMX_BASE_FILTER_TYPE);
 
 static void
+process_output_buf(GstOmxBaseFilter * omx_base, GstBuffer * buf, OMX_BUFFERHEADERTYPE *omx_buffer)
+{
+  GstOmxBaseVideoEnc *self;
+
+  self = GST_OMX_BASE_VIDEOENC (omx_base);
+
+  GST_LOG_OBJECT (self, "base videoenc process_output_buf enter");
+
+  /* MODIFICATION: Set sync frame info while encoding */
+  if (omx_buffer->nFlags & OMX_BUFFERFLAG_SYNCFRAME) {
+    GST_BUFFER_FLAG_UNSET(buf, GST_BUFFER_FLAG_DELTA_UNIT);
+  } else {
+    GST_BUFFER_FLAG_SET(buf, GST_BUFFER_FLAG_DELTA_UNIT);
+  }
+}
+
+static void
 type_base_init (gpointer g_class)
 {
 }
@@ -80,8 +97,10 @@ static void
 type_class_init (gpointer g_class, gpointer class_data)
 {
   GObjectClass *gobject_class;
+  GstOmxBaseFilterClass *basefilter_class;
 
   gobject_class = G_OBJECT_CLASS (g_class);
+  basefilter_class = GST_OMX_BASE_FILTER_CLASS (g_class);
 
   /* Properties stuff */
   {
@@ -94,6 +113,7 @@ type_class_init (gpointer g_class, gpointer class_data)
             0, G_MAXUINT, DEFAULT_BITRATE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
   }
+  basefilter_class->process_output_buf = process_output_buf;
 }
 
 static gboolean
@@ -216,11 +236,6 @@ omx_setup (GstOmxBaseFilter * omx_base)
 
       OMX_SetParameter (gomx->omx_handle, OMX_IndexParamPortDefinition, &param);
     }
-  }
-
-  /* STATE_TUNING */
-  if (omx_base->use_state_tuning && omx_base->sink_set_caps) {
-    sink_setcaps(omx_base->sinkpad, omx_base->sink_set_caps);
   }
 
   GST_INFO_OBJECT (omx_base, "end");

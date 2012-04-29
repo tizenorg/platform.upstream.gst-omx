@@ -23,17 +23,20 @@
 #define GSTOMX_BASE_FILTER_H
 
 #include <gst/gst.h>
+#include <gst/base/gstadapter.h>
+#include "gstomx_util.h"
+#include <async_queue.h>
 
 G_BEGIN_DECLS
-#define GST_OMX_BASE_FILTER(obj) (GstOmxBaseFilter *) (obj)
 #define GST_OMX_BASE_FILTER_TYPE (gst_omx_base_filter_get_type ())
-#define GST_OMX_BASE_FILTER_CLASS(obj) (GstOmxBaseFilterClass *) (obj)
+#define GST_OMX_BASE_FILTER(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_OMX_BASE_FILTER_TYPE, GstOmxBaseFilter))
+#define GST_OMX_BASE_FILTER_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), GST_OMX_BASE_FILTER_TYPE, GstOmxBaseFilterClass))
+#define GST_OMX_BASE_FILTER_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS ((obj), GST_OMX_BASE_FILTER_TYPE, GstOmxBaseFilterClass))
 typedef struct GstOmxBaseFilter GstOmxBaseFilter;
 typedef struct GstOmxBaseFilterClass GstOmxBaseFilterClass;
 typedef void (*GstOmxBaseFilterCb) (GstOmxBaseFilter * self);
+typedef gboolean (*GstOmxBaseFilterEventCb) (GstPad * pad, GstEvent * event);
 
-#include "gstomx_util.h"
-#include <async_queue.h>
 
 /* Add extended_color_format */
 typedef enum _EXT_OMX_COLOR_FORMATTYPE {
@@ -41,6 +44,13 @@ typedef enum _EXT_OMX_COLOR_FORMATTYPE {
     OMX_EXT_COLOR_FormatNV12LPhysicalAddress = 0x7F000002,
     OMX_EXT_COLOR_FormatNV12Tiled            = 0x7FC00002  /* 0x7FC00002 */
 }EXT_OMX_COLOR_FORMATTYPE;
+
+typedef enum GstOmxChangeState
+{
+    GstOmx_ToLoaded,
+    GstOmx_LodedToIdle,
+    GstOmx_IdleToExcuting
+}GstOmxChangeState;
 
 struct GstOmxBaseFilter
 {
@@ -58,6 +68,7 @@ struct GstOmxBaseFilter
   GMutex *ready_lock;
 
   GstOmxBaseFilterCb omx_setup;
+  GstOmxBaseFilterEventCb omx_event;
   GstFlowReturn last_pad_push_return;
   GstBuffer *codec_data;
 
@@ -65,14 +76,19 @@ struct GstOmxBaseFilter
   gboolean share_input_buffer;
   gboolean share_output_buffer;
 
-  /* STATE_TUNING */
-  GstCaps *sink_set_caps;
+
   gboolean use_state_tuning;
+
+  GstAdapter *adapter;  /* adapter */
+  guint adapter_size;
 };
 
 struct GstOmxBaseFilterClass
 {
   GstElementClass parent_class;
+
+  void (*process_input_buf)(GstOmxBaseFilter * omx_base_filter, GstBuffer * buf);
+  void (*process_output_buf)(GstOmxBaseFilter * omx_base_filter, GstBuffer * buf, OMX_BUFFERHEADERTYPE *omx_buffer);
 };
 
 GType gst_omx_base_filter_get_type (void);

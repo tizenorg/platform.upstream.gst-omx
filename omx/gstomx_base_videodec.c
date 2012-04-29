@@ -22,17 +22,85 @@
 #include "gstomx_base_videodec.h"
 #include "gstomx.h"
 
+enum
+{
+  ARG_0,
+  ARG_USE_STATETUNING, /* STATE_TUNING */
+};
+
 GSTOMX_BOILERPLATE (GstOmxBaseVideoDec, gst_omx_base_videodec, GstOmxBaseFilter,
     GST_OMX_BASE_FILTER_TYPE);
+
+static void
+process_input_buf (GstOmxBaseFilter * omx_base_filter, GstBuffer * buf)
+{
+}
 
 static void
 type_base_init (gpointer g_class)
 {
 }
 
+
+/* add state tuning property */
+static void
+set_property (GObject * obj,
+    guint prop_id, const GValue * value, GParamSpec * pspec)
+{
+  GstOmxBaseVideoDec *self;
+
+  self = GST_OMX_BASE_VIDEODEC (obj);
+
+  switch (prop_id) {
+    /* STATE_TUNING */
+    case ARG_USE_STATETUNING:
+      self->omx_base.use_state_tuning = g_value_get_boolean(value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
+      break;
+  }
+}
+
+static void
+get_property (GObject * obj, guint prop_id, GValue * value, GParamSpec * pspec)
+{
+  GstOmxBaseVideoDec *self;
+
+  self = GST_OMX_BASE_VIDEODEC (obj);
+
+  switch (prop_id) {
+    /* STATE_TUNING */
+    case ARG_USE_STATETUNING:
+      g_value_set_boolean(value, self->omx_base.use_state_tuning);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
+      break;
+  }
+}
+
 static void
 type_class_init (gpointer g_class, gpointer class_data)
 {
+  GObjectClass *gobject_class;
+  GstOmxBaseFilterClass *basefilter_class;
+
+  gobject_class = G_OBJECT_CLASS (g_class);
+  basefilter_class = GST_OMX_BASE_FILTER_CLASS (g_class);
+
+  /* Properties stuff */
+  {
+    gobject_class->set_property = set_property;
+    gobject_class->get_property = get_property;
+
+    /* STATE_TUNING */
+    g_object_class_install_property (gobject_class, ARG_USE_STATETUNING,
+        g_param_spec_boolean ("state-tuning", "start omx component in gst paused state",
+        "Whether or not to use state-tuning feature",
+        FALSE, G_PARAM_READWRITE));
+  }
+  basefilter_class->process_input_buf = process_input_buf;
 }
 
 static void
@@ -196,11 +264,6 @@ omx_setup (GstOmxBaseFilter * omx_base)
 
       OMX_SetParameter (gomx->omx_handle, OMX_IndexParamPortDefinition, &param);
     }
-  }
-
-  /* STATE_TUNING */
-  if (omx_base->use_state_tuning && omx_base->sink_set_caps) {
-    sink_setcaps(omx_base->sinkpad, omx_base->sink_set_caps);
   }
 
   GST_INFO_OBJECT (omx_base, "end");
