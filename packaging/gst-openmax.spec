@@ -5,6 +5,7 @@ Release:    0
 Group:      TO_BE/FILLED_IN
 License:    LGPLv2.1
 Source0:    %{name}-%{version}.tar.gz
+Source1001: packaging/gst-openmax.manifest 
 BuildRequires: which
 BuildRequires: pkgconfig(gstreamer-0.10)
 BuildRequires: pkgconfig(gstreamer-plugins-base-0.10)
@@ -19,6 +20,7 @@ including but not limited to Texas Instruments and Bellagio.
 %setup -q
 
 %build
+cp %{SOURCE1001} .
 ./autogen.sh --noconfigure
 %configure --disable-static --prefix=/usr
 
@@ -30,5 +32,6 @@ rm -rf %{buildroot}
 %make_install
 
 %files
+%manifest gst-openmax.manifest
 %{_libdir}/gstreamer-0.10/libgstomx.so
 
