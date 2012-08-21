@@ -118,7 +118,7 @@ error_exit:
 }
 
 static void
-process_input_buf (GstOmxBaseFilter * omx_base_filter, GstBuffer * buf)
+process_input_buf (GstOmxBaseFilter * omx_base_filter, GstBuffer **buf)
 {
   GstOmxMpeg4Dec *self;
 
@@ -128,10 +128,10 @@ process_input_buf (GstOmxBaseFilter * omx_base_filter, GstBuffer * buf)
 
   /* decrypt DivX DRM buffer if this is DRM */
   if (self->drmContext) {
-    if (DRM_SUCCESS == self->divx_sym_table.decrypt_video (self->drmContext, GST_BUFFER_DATA(buf), GST_BUFFER_SIZE(buf))) {
-      GST_DEBUG_OBJECT (self, "##### DivX DRM Mode ##### decrypt video success : buffer = %d", GST_BUFFER_SIZE(buf));
+    if (DRM_SUCCESS == self->divx_sym_table.decrypt_video (self->drmContext, GST_BUFFER_DATA(*buf), GST_BUFFER_SIZE(*buf))) {
+      GST_DEBUG_OBJECT (self, "##### DivX DRM Mode ##### decrypt video success : buffer = %d", GST_BUFFER_SIZE(*buf));
     } else {
-      GST_ERROR_OBJECT (self, "##### DivX DRM Mode ##### decrypt video failed : buffer = %d", GST_BUFFER_SIZE(buf));
+      GST_ERROR_OBJECT (self, "##### DivX DRM Mode ##### decrypt video failed : buffer = %d", GST_BUFFER_SIZE(*buf));
     }
   }
 
@@ -174,7 +174,7 @@ print_tag (const GstTagList * list, const gchar * tag, gpointer data)
     }
 
     if (i == 0) {
-      g_print ("%16s: %s\n", gst_tag_get_nick (tag), str);
+      GST_LOG_OBJECT(self, "%16s: %s", gst_tag_get_nick (tag), str);
 
       if (strcmp (gst_tag_get_nick(tag), "DRM DivX") == 0) {
         if (self->drmContext == NULL) {
@@ -190,7 +190,6 @@ print_tag (const GstTagList * list, const gchar * tag, gpointer data)
       }
     } else {
       GST_LOG_OBJECT(self, "tag is not DRM Divx");
-      g_print ("%16s: %s\n", "", str);
     }
 
     g_free (str);
@@ -299,6 +298,6 @@ type_instance_init (GTypeInstance * instance, gpointer g_class)
   omx_base = GST_OMX_BASE_VIDEODEC (instance);
   omx_base_filter = GST_OMX_BASE_FILTER (instance);
 
-  omx_base_filter->omx_event = mpeg4_pad_event;
+  omx_base_filter->pad_event = mpeg4_pad_event;
   omx_base->compression_format = OMX_VIDEO_CodingMPEG4;
 }

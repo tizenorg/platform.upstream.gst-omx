@@ -38,7 +38,7 @@ typedef void (*GstOmxBaseFilterCb) (GstOmxBaseFilter * self);
 typedef gboolean (*GstOmxBaseFilterEventCb) (GstPad * pad, GstEvent * event);
 
 
-/* Add extended_color_format */
+/* MODIFICATION: Add extended_color_format */
 typedef enum _EXT_OMX_COLOR_FORMATTYPE {
     OMX_EXT_COLOR_FormatNV12TPhysicalAddress = 0x7F000001, /**< Reserved region for introducing Vendor Extensions */
     OMX_EXT_COLOR_FormatNV12LPhysicalAddress = 0x7F000002,
@@ -68,15 +68,11 @@ struct GstOmxBaseFilter
   GMutex *ready_lock;
 
   GstOmxBaseFilterCb omx_setup;
-  GstOmxBaseFilterEventCb omx_event;
+  GstOmxBaseFilterEventCb pad_event;
   GstFlowReturn last_pad_push_return;
   GstBuffer *codec_data;
 
-    /** @todo these are hacks, OpenMAX IL spec should be revised. */
-  gboolean share_input_buffer;
-  gboolean share_output_buffer;
-
-
+  /* MODIFICATION: state-tuning */
   gboolean use_state_tuning;
 
   GstAdapter *adapter;  /* adapter */
@@ -87,8 +83,10 @@ struct GstOmxBaseFilterClass
 {
   GstElementClass parent_class;
 
-  void (*process_input_buf)(GstOmxBaseFilter * omx_base_filter, GstBuffer * buf);
-  void (*process_output_buf)(GstOmxBaseFilter * omx_base_filter, GstBuffer * buf, OMX_BUFFERHEADERTYPE *omx_buffer);
+  void (*process_input_buf)(GstOmxBaseFilter *omx_base_filter, GstBuffer **buf);
+  void (*process_output_buf)(GstOmxBaseFilter *omx_base_filter, GstBuffer **buf, OMX_BUFFERHEADERTYPE *omx_buffer);
+  void (*process_output_caps)(GstOmxBaseFilter *omx_base_filter, OMX_BUFFERHEADERTYPE *omx_buffer);
+
 };
 
 GType gst_omx_base_filter_get_type (void);

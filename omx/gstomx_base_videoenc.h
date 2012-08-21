@@ -27,6 +27,7 @@
 G_BEGIN_DECLS
 #define GST_OMX_BASE_VIDEOENC(obj) (GstOmxBaseVideoEnc *) (obj)
 #define GST_OMX_BASE_VIDEOENC_TYPE (gst_omx_base_videoenc_get_type ())
+#define GST_OMX_BASE_VIDEOENC_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), GST_OMX_BASE_VIDEOENC_TYPE, GstOmxBaseVideoEncClass))
 typedef struct GstOmxBaseVideoEnc GstOmxBaseVideoEnc;
 typedef struct GstOmxBaseVideoEncClass GstOmxBaseVideoEncClass;
 
@@ -40,6 +41,7 @@ struct GstOmxBaseVideoEnc
   guint bitrate;
   gint framerate_num;
   gint framerate_denom;
+  gboolean use_force_key_frame;
 };
 
 struct GstOmxBaseVideoEncClass

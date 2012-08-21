@@ -32,7 +32,7 @@ GSTOMX_BOILERPLATE (GstOmxBaseVideoDec, gst_omx_base_videodec, GstOmxBaseFilter,
     GST_OMX_BASE_FILTER_TYPE);
 
 static void
-process_input_buf (GstOmxBaseFilter * omx_base_filter, GstBuffer * buf)
+process_input_buf (GstOmxBaseFilter * omx_base_filter, GstBuffer **buf)
 {
 }
 
@@ -41,8 +41,7 @@ type_base_init (gpointer g_class)
 {
 }
 
-
-/* add state tuning property */
+/* MODIFICATION: add state tuning property */
 static void
 set_property (GObject * obj,
     guint prop_id, const GValue * value, GParamSpec * pspec)
@@ -139,7 +138,7 @@ settings_changed_cb (GOmxCore * core)
       case OMX_COLOR_FormatCbYCrY:
         format = GST_MAKE_FOURCC ('U', 'Y', 'V', 'Y');
         break;
-      /* Add extended_color_format */
+      /* MODIFICATION: Add extended_color_format */
       case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
         format = GST_MAKE_FOURCC ('S', 'T', '1', '2');
         break;
@@ -174,6 +173,7 @@ settings_changed_cb (GOmxCore * core)
 
     GST_INFO_OBJECT (omx_base, "caps are: %" GST_PTR_FORMAT, new_caps);
     gst_pad_set_caps (omx_base->srcpad, new_caps);
+    gst_caps_unref (new_caps); /* Modification: unref caps */
   }
 }
 

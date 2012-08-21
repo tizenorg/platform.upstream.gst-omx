@@ -104,6 +104,7 @@ gst_omx_volume_get_type,};
 static gchar *
 get_config_path (void)
 {
+/* MODIFICATION */
 #if 1     /* Fix_config_path */
   return g_build_filename (OMX_CONFIG_DIRPATH, OMX_CONFIG_FILENAME, NULL);
 #else

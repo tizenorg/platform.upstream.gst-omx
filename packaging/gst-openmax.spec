@@ -1,7 +1,7 @@
 Name:       gst-openmax
 Summary:    GStreamer plug-in that allows communication with OpenMAX IL components
 Version:    0.10.1
-Release:    0
+Release:    1
 Group:      TO_BE/FILLED_IN
 License:    LGPLv2.1
 Source0:    %{name}-%{version}.tar.gz

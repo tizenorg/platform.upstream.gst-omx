@@ -22,6 +22,12 @@
 #include "gstomx_base_audiodec.h"
 #include "gstomx.h"
 
+enum
+{
+  ARG_0,
+  ARG_USE_STATETUNING, /* STATE_TUNING */
+};
+
 GSTOMX_BOILERPLATE (GstOmxBaseAudioDec, gst_omx_base_audiodec, GstOmxBaseFilter,
     GST_OMX_BASE_FILTER_TYPE);
 
@@ -30,9 +36,64 @@ type_base_init (gpointer g_class)
 {
 }
 
+/* MODIFICATION: add state tuning property */
+static void
+set_property (GObject * obj,
+    guint prop_id, const GValue * value, GParamSpec * pspec)
+{
+  GstOmxBaseAudioDec *self;
+
+  self = GST_OMX_BASE_AUDIODEC (obj);
+
+  switch (prop_id) {
+    /* STATE_TUNING */
+    case ARG_USE_STATETUNING:
+      self->omx_base.use_state_tuning = g_value_get_boolean(value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
+      break;
+  }
+}
+
+static void
+get_property (GObject * obj, guint prop_id, GValue * value, GParamSpec * pspec)
+{
+  GstOmxBaseAudioDec *self;
+
+  self = GST_OMX_BASE_AUDIODEC (obj);
+
+  switch (prop_id) {
+    /* STATE_TUNING */
+    case ARG_USE_STATETUNING:
+      g_value_set_boolean(value, self->omx_base.use_state_tuning);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
+      break;
+  }
+}
+
 static void
 type_class_init (gpointer g_class, gpointer class_data)
 {
+  GObjectClass *gobject_class;
+  GstOmxBaseFilterClass *basefilter_class;
+
+  gobject_class = G_OBJECT_CLASS (g_class);
+  basefilter_class = GST_OMX_BASE_FILTER_CLASS (g_class);
+
+  /* Properties stuff */
+  {
+    gobject_class->set_property = set_property;
+    gobject_class->get_property = get_property;
+
+    /* STATE_TUNING */
+    g_object_class_install_property (gobject_class, ARG_USE_STATETUNING,
+        g_param_spec_boolean ("state-tuning", "start omx component in gst paused state",
+        "Whether or not to use state-tuning feature",
+        FALSE, G_PARAM_READWRITE));
+  }
 }
 
 static void

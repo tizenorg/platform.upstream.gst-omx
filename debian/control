@@ -1,6 +1,6 @@
 Source: gst-openmax
 Maintainer: Hyunseok Lee <hs7388.lee@samsung.com>, JongHyuk Choi <jhchoi.choi@samsung.com>
-Uploaders: Hyunseok Lee <hs7388.lee@samsung.com>, Dowan Kim <dowan2171.kim@samsung.com>, Sunghyun Eum <sunghyun.eum@samsung.com>, Seongho Jeong(sh33.jeong@samsung.com)
+Uploaders: Hyunseok Lee <hs7388.lee@samsung.com>, Dowan Kim <dowan2171.kim@samsung.com>, Sunghyun Eum <sunghyun.eum@samsung.com>
 Section: libs
 Priority: optional
 Standards-Version: 3.7.3
