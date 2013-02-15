@@ -31,10 +31,19 @@ typedef struct GstOmxH264Enc GstOmxH264Enc;
 typedef struct GstOmxH264EncClass GstOmxH264EncClass;
 
 #include "gstomx_base_videoenc.h"
+#include "gstomx_h264.h"
 
 struct GstOmxH264Enc
 {
   GstOmxBaseVideoEnc omx_base;
+  gboolean byte_stream;
+
+  GstBuffer *dci;
+  gboolean append_dci;
+  gboolean first_frame;
+
+  OMX_VIDEO_PARAM_AVCTYPE h264type;
+  OMX_VIDEO_PARAM_AVCSLICEFMO slice_fmo;
 };
 
 struct GstOmxH264EncClass

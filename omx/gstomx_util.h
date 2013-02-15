@@ -37,6 +37,7 @@ typedef struct GOmxPort GOmxPort;
 typedef struct GOmxImp GOmxImp;
 typedef struct GOmxSymbolTable GOmxSymbolTable;
 typedef enum GOmxPortType GOmxPortType;
+/* MODIFICATION: omx vender */
 typedef enum GOmxVendor GOmxVendor;
 
 typedef void (*GOmxCb) (GOmxCore * core);
@@ -54,7 +55,8 @@ enum GOmxPortType
 enum GOmxVendor
 {
   GOMX_VENDOR_DEFAULT,
-  GOMX_VENDOR_SLSI
+  GOMX_VENDOR_SLSI,
+  GOMX_VENDOR_QCT
 };
 
 /* Structures. */
@@ -101,7 +103,8 @@ struct GOmxCore
   gchar *library_name;
   gchar *component_name;
   gchar *component_role;
-  GOmxVendor component_vendor;    /* Add_component_vendor */
+  /* MODIFICATION: omx vender */
+  GOmxVendor component_vendor;
 };
 
 struct GOmxPort
@@ -118,6 +121,8 @@ struct GOmxPort
   gboolean enabled;
   gboolean omx_allocate;   /**< Setup with OMX_AllocateBuffer rather than OMX_UseBuffer */
   AsyncQueue *queue;
+
+  gboolean shared_buffer; /* Modification */
 };
 
 /* Functions. */

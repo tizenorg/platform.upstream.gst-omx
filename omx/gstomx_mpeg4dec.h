@@ -23,18 +23,46 @@
 #define GSTOMX_MPEG4DEC_H
 
 #include <gst/gst.h>
+#include <stdint.h>
+#include <dlfcn.h>
+#include <stdlib.h>
 
 G_BEGIN_DECLS
 #define GST_OMX_MPEG4DEC(obj) (GstOmxMpeg4Dec *) (obj)
 #define GST_OMX_MPEG4DEC_TYPE (gst_omx_mpeg4dec_get_type ())
+typedef struct DivXSymbolTable DivXSymbolTable;
 typedef struct GstOmxMpeg4Dec GstOmxMpeg4Dec;
 typedef struct GstOmxMpeg4DecClass GstOmxMpeg4DecClass;
 
 #include "gstomx_base_videodec.h"
 
+#define DIVX_SDK_PLUGIN_NAME "libmm_divxsdk.so"
+
+typedef enum drmErrorCodes
+{
+  DRM_SUCCESS = 0,
+  DRM_NOT_AUTHORIZED,
+  DRM_NOT_REGISTERED,
+  DRM_RENTAL_EXPIRED,
+  DRM_GENERAL_ERROR,
+  DRM_NEVER_REGISTERED,
+} drmErrorCodes_t;
+
+struct DivXSymbolTable
+{
+  uint8_t* (*init_decrypt) (int*);
+  int (*commit) (uint8_t *);
+  int (*decrypt_video) (uint8_t *, uint8_t *, uint32_t);
+  int (*prepare_video_bitstream) (uint8_t *, uint8_t * , uint32_t ,  uint8_t * , uint32_t * );
+  int (*finalize) (uint8_t *);
+};
+
 struct GstOmxMpeg4Dec
 {
   GstOmxBaseVideoDec omx_base;
+  uint8_t* drmContext;
+  void *divx_handle;
+  DivXSymbolTable divx_sym_table;
 };
 
 struct GstOmxMpeg4DecClass

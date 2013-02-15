@@ -14,7 +14,7 @@ libgstomx_la_SOURCES = gstomx.c gstomx.h \
 		       gstomx_h264dec.c gstomx_h264dec.h \
 		       gstomx_wmvdec.c gstomx_wmvdec.h \
 		       gstomx_mpeg4enc.c gstomx_mpeg4enc.h \
-		       gstomx_h264enc.c gstomx_h264enc.h \
+		       gstomx_h264enc.c gstomx_h264enc.h gstomx_h264.h \
 		       gstomx_h263enc.c gstomx_h263enc.h \
 		       gstomx_vorbisdec.c gstomx_vorbisdec.h \
 		       gstomx_mp3dec.c gstomx_mp3dec.h \
