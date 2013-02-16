@@ -27,14 +27,18 @@
 G_BEGIN_DECLS
 #define GST_OMX_H264DEC(obj) (GstOmxH264Dec *) (obj)
 #define GST_OMX_H264DEC_TYPE (gst_omx_h264dec_get_type ())
+
 typedef struct GstOmxH264Dec GstOmxH264Dec;
 typedef struct GstOmxH264DecClass GstOmxH264DecClass;
 
 #include "gstomx_base_videodec.h"
+#include "gstomx_h264.h"
 
 struct GstOmxH264Dec
 {
   GstOmxBaseVideoDec omx_base;
+  GSTOMX_H264_STREAM_FORMAT h264Format;
+  OMX_U32 h264NalLengthSize;
 };
 
 struct GstOmxH264DecClass

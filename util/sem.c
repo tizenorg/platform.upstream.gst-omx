@@ -42,6 +42,7 @@ g_sem_free (GSem * sem)
   g_cond_free (sem->condition);
   g_mutex_free (sem->mutex);
   g_free (sem);
+  sem = NULL;
 }
 
 void

@@ -28,12 +28,104 @@ enum
 {
   ARG_0,
   ARG_BITRATE,
+  ARG_FORCE_KEY_FRAME,
 };
 
 #define DEFAULT_BITRATE 0
 
 GSTOMX_BOILERPLATE (GstOmxBaseVideoEnc, gst_omx_base_videoenc, GstOmxBaseFilter,
     GST_OMX_BASE_FILTER_TYPE);
+
+
+/* modification: user force I frame */
+static void
+add_force_key_frame(GstOmxBaseVideoEnc *enc)
+{
+  GstOmxBaseFilter *omx_base;
+  GOmxCore *gomx;
+  OMX_CONFIG_INTRAREFRESHVOPTYPE config;
+
+  omx_base = GST_OMX_BASE_FILTER (enc);
+  gomx = (GOmxCore *) omx_base->gomx;
+
+
+  GST_INFO_OBJECT (enc, "request forced key frame now.");
+
+  if (!omx_base->out_port || !gomx->omx_handle) {
+    GST_WARNING_OBJECT (enc, "failed to set force-i-frame...");
+    return;
+  }
+
+  G_OMX_INIT_PARAM (config);
+  config.nPortIndex = omx_base->out_port->port_index;
+
+  OMX_GetConfig (gomx->omx_handle, OMX_IndexConfigVideoIntraVOPRefresh, &config);
+  config.IntraRefreshVOP = OMX_TRUE;
+
+  OMX_SetConfig (gomx->omx_handle, OMX_IndexConfigVideoIntraVOPRefresh, &config);
+}
+
+
+static GstOmxReturn
+process_input_buf (GstOmxBaseFilter * omx_base_filter, GstBuffer **buf)
+{
+  GstOmxBaseVideoEnc *self;
+
+  self = GST_OMX_BASE_VIDEOENC (omx_base_filter);
+
+  GST_LOG_OBJECT (self, "base videoenc process_input_buf enter");
+
+
+  return GSTOMX_RETURN_OK;
+}
+
+/* modification: postprocess for outputbuf. in this videoenc case, set sync frame */
+static GstOmxReturn
+process_output_buf(GstOmxBaseFilter * omx_base, GstBuffer **buf, OMX_BUFFERHEADERTYPE *omx_buffer)
+{
+  GstOmxBaseVideoEnc *self;
+
+  self = GST_OMX_BASE_VIDEOENC (omx_base);
+
+  GST_LOG_OBJECT (self, "base videoenc process_output_buf enter");
+
+  /* modification: set sync frame info while encoding */
+  if (omx_buffer->nFlags & OMX_BUFFERFLAG_SYNCFRAME) {
+    GST_BUFFER_FLAG_UNSET(*buf, GST_BUFFER_FLAG_DELTA_UNIT);
+  } else {
+    GST_BUFFER_FLAG_SET(*buf, GST_BUFFER_FLAG_DELTA_UNIT);
+  }
+
+  return GSTOMX_RETURN_OK;
+}
+
+/* modification: get codec_data from omx component and set it caps */
+static void
+process_output_caps(GstOmxBaseFilter * self, OMX_BUFFERHEADERTYPE *omx_buffer)
+{
+  GstBuffer *buf;
+  GstCaps *caps = NULL;
+  GstStructure *structure;
+  GValue value = { 0, {{0}
+      }
+  };
+
+  caps = gst_pad_get_negotiated_caps (self->srcpad);
+  caps = gst_caps_make_writable (caps);
+  structure = gst_caps_get_structure (caps, 0);
+
+  g_value_init (&value, GST_TYPE_BUFFER);
+  buf = gst_buffer_new_and_alloc (omx_buffer->nFilledLen);
+  memcpy (GST_BUFFER_DATA (buf),
+      omx_buffer->pBuffer + omx_buffer->nOffset, omx_buffer->nFilledLen);
+  gst_value_set_buffer (&value, buf);
+  gst_buffer_unref (buf);
+  gst_structure_set_value (structure, "codec_data", &value);
+  g_value_unset (&value);
+
+  gst_pad_set_caps (self->srcpad, caps);
+  gst_caps_unref (caps);
+}
 
 static void
 type_base_init (gpointer g_class)
@@ -51,6 +143,14 @@ set_property (GObject * obj,
   switch (prop_id) {
     case ARG_BITRATE:
       self->bitrate = g_value_get_uint (value);
+      break;
+    /* modification: request to component to make key frame */
+    case ARG_FORCE_KEY_FRAME:
+      self->use_force_key_frame = g_value_get_boolean (value);
+      if (self->use_force_key_frame) {
+        add_force_key_frame (self);
+        self->use_force_key_frame = FALSE;
+      }
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
@@ -80,8 +180,12 @@ static void
 type_class_init (gpointer g_class, gpointer class_data)
 {
   GObjectClass *gobject_class;
+  GstOmxBaseFilterClass *basefilter_class;
+//  GstOmxBaseVideoEncClass *videoenc_class;
 
   gobject_class = G_OBJECT_CLASS (g_class);
+  basefilter_class = GST_OMX_BASE_FILTER_CLASS (g_class);
+//  videoenc_class = GST_OMX_BASE_VIDEOENC_CLASS (g_class);
 
   /* Properties stuff */
   {
@@ -93,7 +197,16 @@ type_class_init (gpointer g_class, gpointer class_data)
             "Encoding bit-rate",
             0, G_MAXUINT, DEFAULT_BITRATE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+    g_object_class_install_property (gobject_class, ARG_FORCE_KEY_FRAME,
+        g_param_spec_boolean ("force-i-frame", "force the encoder to produce I frame",
+            "force the encoder to produce I frame",
+            FALSE,
+            G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS));
   }
+  basefilter_class->process_input_buf = process_input_buf;
+  basefilter_class->process_output_buf = process_output_buf;
+  basefilter_class->process_output_caps = process_output_caps;
 }
 
 static gboolean
@@ -142,7 +255,7 @@ sink_setcaps (GstPad * pad, GstCaps * caps)
         case GST_MAKE_FOURCC ('U', 'Y', 'V', 'Y'):
           color_format = OMX_COLOR_FormatCbYCrY;
           break;
-        /* Add extended_color_format */
+        /* MODIFICATION: Add extended_color_format */
         case GST_MAKE_FOURCC ('S', 'T', '1', '2'):
           color_format = OMX_EXT_COLOR_FormatNV12TPhysicalAddress;
           break;
@@ -176,12 +289,13 @@ sink_setcaps (GstPad * pad, GstCaps * caps)
       OMX_SetParameter (gomx->omx_handle, OMX_IndexParamPortDefinition, &param);
     }
 
+    /* modification: set nBufferSize */
     G_OMX_INIT_PARAM (param);
 
     param.nPortIndex = omx_base->out_port->port_index;
     OMX_GetParameter (gomx->omx_handle, OMX_IndexParamPortDefinition, &param);
 
-    param.nBufferSize = MAX(param.nBufferSize, width * height * 3 / 2);
+    param.nBufferSize = width * height * 3 / 2;
     OMX_SetParameter (gomx->omx_handle, OMX_IndexParamPortDefinition, &param);
   }
 
@@ -211,16 +325,26 @@ omx_setup (GstOmxBaseFilter * omx_base)
 
       param.format.video.eCompressionFormat = self->compression_format;
 
-      if (self->bitrate != 0)
+      if (self->bitrate > 0)
         param.format.video.nBitrate = self->bitrate;
 
       OMX_SetParameter (gomx->omx_handle, OMX_IndexParamPortDefinition, &param);
     }
   }
 
-  /* STATE_TUNING */
-  if (omx_base->use_state_tuning && omx_base->sink_set_caps) {
-    sink_setcaps(omx_base->sinkpad, omx_base->sink_set_caps);
+  /* modification: set bitrate by using OMX_IndexParamVideoBitrate macro*/
+  if (self->bitrate > 0) {
+    OMX_VIDEO_PARAM_BITRATETYPE param;
+    G_OMX_INIT_PARAM (param);
+
+    param.nPortIndex = omx_base->out_port->port_index;
+    OMX_GetParameter (gomx->omx_handle, OMX_IndexParamVideoBitrate, &param);
+
+    param.nTargetBitrate = self->bitrate;
+    param.eControlRate = OMX_Video_ControlRateConstant;
+    GST_INFO_OBJECT (self, "set bitrate (OMX_Video_ControlRateConstant): %d", param.nTargetBitrate);
+
+    OMX_SetParameter (gomx->omx_handle, OMX_IndexParamVideoBitrate, &param);
   }
 
   GST_INFO_OBJECT (omx_base, "end");
@@ -240,4 +364,5 @@ type_instance_init (GTypeInstance * instance, gpointer g_class)
   gst_pad_set_setcaps_function (omx_base->sinkpad, sink_setcaps);
 
   self->bitrate = DEFAULT_BITRATE;
+  self->use_force_key_frame = FALSE;
 }

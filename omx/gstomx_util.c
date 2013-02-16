@@ -275,6 +275,7 @@ g_omx_core_free (GOmxCore * core)
   g_ptr_array_free (core->ports, TRUE);
 
   g_free (core);
+  core = NULL;
 }
 
 void
@@ -307,16 +308,20 @@ g_omx_core_init (GOmxCore * core)
       G_OMX_INIT_PARAM (param);
 
       strncpy ((char *) param.cRole, core->component_role,
-          OMX_MAX_STRINGNAME_SIZE);
+          OMX_MAX_STRINGNAME_SIZE - 1);
 
       OMX_SetParameter (core->omx_handle, OMX_IndexParamStandardComponentRole,
           &param);
     }
 
-    /* Add_component_vendor */
+    /* MODIFICATION: Add_component_vendor */
     if (strncmp(core->component_name+4, "SEC", 3) == 0)
     {
       core->component_vendor = GOMX_VENDOR_SLSI;
+    }
+    else if (strncmp(core->component_name+4, "qcom", 4) == 0)
+    {
+      core->component_vendor = GOMX_VENDOR_QCT;
     }
     else
     {
@@ -345,6 +350,9 @@ core_deinit (GOmxCore * core)
   g_free (core->library_name);
   g_free (core->component_name);
   g_free (core->component_role);
+  core->library_name = NULL;
+  core->component_name = NULL;
+  core->component_role = NULL;
 
   release_imp (core->imp);
   core->imp = NULL;
@@ -477,6 +485,7 @@ g_omx_port_new (GOmxCore * core, guint index)
   port->num_buffers = 0;
   port->buffer_size = 0;
   port->buffers = NULL;
+  port->shared_buffer = FALSE;
 
   port->enabled = TRUE;
   port->queue = async_queue_new ();
@@ -492,7 +501,9 @@ g_omx_port_free (GOmxPort * port)
   async_queue_free (port->queue);
 
   g_free (port->buffers);
+  port->buffers = NULL;
   g_free (port);
+  port = NULL;
 }
 
 void
@@ -561,19 +572,48 @@ port_free_buffers (GOmxPort * port)
 {
   guint i;
 
+  if (port->type == GOMX_PORT_INPUT) {
+    GST_INFO_OBJECT(port->core->object, "Input port free buffers.");
+  } else {
+    GST_INFO_OBJECT(port->core->object, "Output port free buffers.");
+  }
+
   for (i = 0; i < port->num_buffers; i++) {
     OMX_BUFFERHEADERTYPE *omx_buffer;
 
     omx_buffer = port->buffers[i];
 
     if (omx_buffer) {
-#if 0
-            /** @todo how shall we free that buffer? */
-      if (!port->omx_allocate) {
-        g_free (omx_buffer->pBuffer);
-        omx_buffer->pBuffer = NULL;
+
+      if (port->shared_buffer) {
+        /* Modification: free pAppPrivate when input/output buffer is shared */
+
+        if (!omx_buffer->pAppPrivate && port->type == GOMX_PORT_OUTPUT && omx_buffer->pBuffer) {
+          GST_INFO_OBJECT(port->core->object,
+          " %d: g_free shared buffer (pBuffer) %p", i, omx_buffer->pBuffer);
+          g_free (omx_buffer->pBuffer);
+          omx_buffer->pBuffer = NULL;
+        }
+
+        if (omx_buffer->pAppPrivate) {
+          GST_INFO_OBJECT(port->core->object,
+              " %d: unref shared buffer (pAppPrivate) %p", i, omx_buffer->pAppPrivate);
+          gst_buffer_unref(omx_buffer->pAppPrivate);
+          omx_buffer->pAppPrivate = NULL;
+        }
+
+      } else { /* this is not shared buffer */
+        if (!port->omx_allocate) {
+      /* Modification: free pBuffer allocated in plugin when OMX_UseBuffer.
+       * the component shall free only buffer header if it allocated only buffer header.*/
+          GST_INFO_OBJECT(port->core->object,
+              " %d: free buffer (pBuffer) %p", i, omx_buffer->pBuffer);
+          if (omx_buffer->pBuffer) {
+            g_free (omx_buffer->pBuffer);
+            omx_buffer->pBuffer = NULL;
+          }
+        }
       }
-#endif
 
       OMX_FreeBuffer (port->core->omx_handle, port->port_index, omx_buffer);
       port->buffers[i] = NULL;
