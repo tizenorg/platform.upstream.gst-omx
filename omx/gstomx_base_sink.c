@@ -33,8 +33,6 @@ enum
   ARG_NUM_INPUT_BUFFERS = GSTOMX_NUM_COMMON_PROP,
 };
 
-static gboolean share_input_buffer;
-
 static inline gboolean omx_init (GstOmxBaseSink * self);
 
 static void init_interfaces (GType type);
@@ -161,7 +159,7 @@ render (GstBaseSink * gst_base, GstBuffer * buf)
             omx_buffer->nAllocLen, omx_buffer->nFilledLen, omx_buffer->nFlags,
             omx_buffer->nOffset, omx_buffer->nTimeStamp);
 
-        if (omx_buffer->nOffset == 0 && share_input_buffer) {
+        if (omx_buffer->nOffset == 0 && self->in_port->shared_buffer) {
           {
             GstBuffer *old_buf;
             old_buf = omx_buffer->pAppPrivate;
@@ -170,6 +168,7 @@ render (GstBaseSink * gst_base, GstBuffer * buf)
               gst_buffer_unref (old_buf);
             } else if (omx_buffer->pBuffer) {
               g_free (omx_buffer->pBuffer);
+              omx_buffer->pBuffer = NULL;
             }
           }
 

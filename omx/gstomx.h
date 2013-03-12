@@ -29,7 +29,7 @@ GST_DEBUG_CATEGORY_EXTERN (gstomx_util_debug);
 #define GST_CAT_DEFAULT gstomx_debug
 
 /* Fix_config_path */
-#define OMX_CONFIG_DIRPATH "/opt/etc"
+#define OMX_CONFIG_DIRPATH "/usr/etc"
 #define OMX_CONFIG_FILENAME "gst-openmax.conf"
 
 enum
