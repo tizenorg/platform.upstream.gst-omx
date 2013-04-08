@@ -43,6 +43,10 @@ typedef enum GOmxVendor GOmxVendor;
 typedef void (*GOmxCb) (GOmxCore * core);
 typedef void (*GOmxPortCb) (GOmxPort * port);
 
+/* MODIFICATION: ignore init fail when going to stop. for S.LSI case.*/
+#define OMX_ErrorMFCInit 0x90000004
+#define OMX_UNRECOVERABLE_ERROR_MAX_COUNT 10
+
 /* Enums. */
 
 enum GOmxPortType
@@ -105,6 +109,8 @@ struct GOmxCore
   gchar *component_role;
   /* MODIFICATION: omx vender */
   GOmxVendor component_vendor;
+
+  gint omx_unrecover_err_cnt;
 };
 
 struct GOmxPort

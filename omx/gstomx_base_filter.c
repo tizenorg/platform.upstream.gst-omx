@@ -261,6 +261,9 @@ change_state (GstElement * element, GstStateChange transition)
 
     case GST_STATE_CHANGE_READY_TO_PAUSED:
       GST_INFO_OBJECT (self, "GST_STATE_CHANGE_READY_TO_PAUSED");
+
+      core->omx_unrecover_err_cnt = 0;
+
       /* MODIFICATION: state tuning */
       if (self->use_state_tuning) {
         GST_INFO_OBJECT (self, "use state-tuning feature");

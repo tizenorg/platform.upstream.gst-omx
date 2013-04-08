@@ -765,9 +765,15 @@ wait_for_state (GOmxCore * core, OMX_STATETYPE state)
   gboolean signaled;
 
   g_mutex_lock (core->omx_state_mutex);
-
-  if (core->omx_error != OMX_ErrorNone)
-    goto leave;
+  if (core->omx_error != OMX_ErrorNone) {
+    /* MODIFICATION: ignore init fail to stop. */
+    if (core->component_vendor == GOMX_VENDOR_SLSI &&
+        core->omx_error == OMX_ErrorMFCInit) {
+      GST_LOG_OBJECT (core->object, "ignore init fail when going to stop");
+    } else {
+      goto leave;
+    }
+  }
 
   g_get_current_time (&tv);
   g_time_val_add (&tv, 15 * G_USEC_PER_SEC);
@@ -911,8 +917,20 @@ EventHandler (OMX_HANDLETYPE omx_handle,
       g_omx_core_flush_start (core);
       /* unlock wait_for_state */
       g_mutex_lock (core->omx_state_mutex);
-      g_cond_signal (core->omx_state_condition);
+      /* MODIFICATION: set to ignore condition signal to stop. */
+      if (core->component_vendor == GOMX_VENDOR_SLSI &&
+          core->omx_error == OMX_ErrorMFCInit) {
+        GST_WARNING_OBJECT (core->object, "do not send g_cond_signal when MFC init fail. (%d)", core->omx_unrecover_err_cnt);
+        core->omx_unrecover_err_cnt++;
+      } else {
+        g_cond_signal (core->omx_state_condition);
+      }
       g_mutex_unlock (core->omx_state_mutex);
+
+      if (core->omx_unrecover_err_cnt >= OMX_UNRECOVERABLE_ERROR_MAX_COUNT) {
+        GST_WARNING_OBJECT (core->object, "got unrecoverable error 10 times. go to omx pause state");
+        g_omx_core_pause(core);
+      }
       break;
     }
     default:
