@@ -131,6 +131,9 @@ struct GstOmxBaseFilter
 
   GstAdapter *adapter;  /* adapter */
   guint adapter_size;
+
+  /* MODIFICATION: set output buffer duration as average */
+  GstClockTime duration;
 };
 
 struct GstOmxBaseFilterClass

@@ -514,6 +514,9 @@ push_buffer (GstOmxBaseFilter * self, GstBuffer * buf, OMX_BUFFERHEADERTYPE * om
     }
   }
 
+  /* set average duration for memsink. need to check */
+  GST_BUFFER_DURATION(buf) = self->duration;
+
   GST_LOG_OBJECT (self, "OUT_BUFFER: timestamp = %" GST_TIME_FORMAT " size = %lu",
       GST_TIME_ARGS(GST_BUFFER_TIMESTAMP (buf)), GST_BUFFER_SIZE (buf));
   ret = gst_pad_push (self->srcpad, buf);
@@ -1169,6 +1172,7 @@ type_instance_init (GTypeInstance * instance, gpointer g_class)
   self->use_state_tuning = FALSE;
   self->adapter_size = 0;
   self->adapter = NULL;
+  self->duration = 0;
 
   self->gomx = gstomx_core_new (self, G_TYPE_FROM_CLASS (g_class));
   self->in_port = g_omx_core_new_port (self->gomx, 0);
