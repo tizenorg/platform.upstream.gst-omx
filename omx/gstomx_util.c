@@ -920,16 +920,26 @@ EventHandler (OMX_HANDLETYPE omx_handle,
       /* MODIFICATION: set to ignore condition signal to stop. */
       if (core->component_vendor == GOMX_VENDOR_SLSI &&
           core->omx_error == OMX_ErrorMFCInit) {
-        GST_WARNING_OBJECT (core->object, "do not send g_cond_signal when MFC init fail. (%d)", core->omx_unrecover_err_cnt);
+        GST_WARNING_OBJECT (core->object, "do not send g_cond_signal when MFC init fail. (%d)",
+            core->omx_unrecover_err_cnt);
+        if (core->omx_unrecover_err_cnt == 0) {
+          if (core->post_gst_element_error == FALSE) {
+            GST_ERROR_OBJECT (core->object, "post GST_ELEMENT_ERROR as Error from OpenMAX component");
+            GST_ELEMENT_ERROR (core->object, STREAM, FAILED, (NULL), ("%s", "Error from OpenMAX component"));
+            core->post_gst_element_error = TRUE;
+          } else {
+            GST_ERROR_OBJECT (core->object, "GST_ELEMENT_ERROR is already posted. skip this (Error from OpenMAX component)");
+          }
+        }
         core->omx_unrecover_err_cnt++;
       } else {
         g_cond_signal (core->omx_state_condition);
       }
       g_mutex_unlock (core->omx_state_mutex);
-
       if (core->omx_unrecover_err_cnt >= OMX_UNRECOVERABLE_ERROR_MAX_COUNT) {
-        GST_WARNING_OBJECT (core->object, "got unrecoverable error 10 times. go to omx pause state");
+        GST_WARNING_OBJECT (core->object, "got unrecoverable error too much. go to omx pause state");
         g_omx_core_pause(core);
+        core->omx_unrecover_err_cnt = 0;
       }
       break;
     }

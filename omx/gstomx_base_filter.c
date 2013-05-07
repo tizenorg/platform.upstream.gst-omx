@@ -217,8 +217,14 @@ out_flushing:
     }
 
     if (error_msg) {
-      GST_ELEMENT_ERROR (self, STREAM, FAILED, (NULL), ("%s", error_msg));
-      ret = GST_FLOW_ERROR;
+      if (gomx->post_gst_element_error == FALSE) {
+        GST_ERROR_OBJECT (self, "post GST_ELEMENT_ERROR as %s", error_msg);
+        GST_ELEMENT_ERROR (self, STREAM, FAILED, (NULL), ("%s", error_msg));
+        gomx->post_gst_element_error = TRUE;
+        ret = GST_FLOW_ERROR;
+      } else {
+        GST_ERROR_OBJECT (self, "GST_ELEMENT_ERROR is already posted. skip this (%s)", error_msg);
+      }
     }
 
     if (buf)
@@ -246,6 +252,9 @@ change_state (GstElement * element, GstStateChange transition)
   switch (transition) {
     case GST_STATE_CHANGE_NULL_TO_READY:
       GST_INFO_OBJECT (self, "GST_STATE_CHANGE_NULL_TO_READY");
+      core->omx_unrecover_err_cnt = 0;
+      core->post_gst_element_error = FALSE;
+
       if (core->omx_state != OMX_StateLoaded) {
         ret = GST_STATE_CHANGE_FAILURE;
         goto leave;
@@ -327,6 +336,8 @@ change_state (GstElement * element, GstStateChange transition)
         g_object_unref(self->adapter);
         self->adapter = NULL;
       }
+      core->omx_unrecover_err_cnt = 0;
+      core->post_gst_element_error = FALSE;
       break;
 
     default:
@@ -970,8 +981,14 @@ out_flushing:
     }
 
     if (error_msg) {
-      GST_ELEMENT_ERROR (self, STREAM, FAILED, (NULL), ("%s", error_msg));
-      ret = GST_FLOW_ERROR;
+      if (gomx->post_gst_element_error == FALSE) {
+        GST_ERROR_OBJECT (self, "post GST_ELEMENT_ERROR as %s", error_msg);
+        GST_ELEMENT_ERROR (self, STREAM, FAILED, (NULL), ("%s", error_msg));
+        gomx->post_gst_element_error = TRUE;
+        ret = GST_FLOW_ERROR;
+      } else {
+        GST_ERROR_OBJECT (self, "GST_ELEMENT_ERROR is already posted. skip this (%s)", error_msg);
+      }
     }
 
     if (self->adapter_size > 0 && adapter_buf) {

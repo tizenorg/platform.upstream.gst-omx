@@ -107,10 +107,15 @@ struct GOmxCore
   gchar *library_name;
   gchar *component_name;
   gchar *component_role;
+
   /* MODIFICATION: omx vender */
   GOmxVendor component_vendor;
 
+  /* MODIFICATION: handle continuous MFC init fails */
   gint omx_unrecover_err_cnt;
+
+  /* MODIFICATION: to do GST_ELEMENT_ERROR only one time */
+  gboolean post_gst_element_error;
 };
 
 struct GOmxPort
