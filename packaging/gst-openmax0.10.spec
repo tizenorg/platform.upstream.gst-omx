@@ -1,5 +1,4 @@
-
-Name:       gst-openmax
+Name:       gst-openmax0.10
 Summary:    GStreamer plug-in that allows communication with OpenMAX IL components
 Version:    0.10.1
 Release:    7
@@ -29,6 +28,6 @@ rm -rf %{buildroot}
 %make_install
 
 %files
-%manifest gst-openmax.manifest
+%manifest packaging/gst-openmax0.10.manifest
 %{_libdir}/gstreamer-0.10/libgstomx.so
 
