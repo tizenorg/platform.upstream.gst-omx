@@ -29,6 +29,7 @@ dnl initialize GStreamer macros
 AG_GST_INIT
 
 dnl define an ERROR_CFLAGS Makefile variable
+GST_CVS=no
 AG_GST_SET_ERROR_CFLAGS($GST_CVS)
 
 dnl add GStreamer arguments
