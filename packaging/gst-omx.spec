@@ -22,6 +22,11 @@ cp %{SOURCE1001} .
 
 %build
 ./autogen.sh --noconfigure
+
+%ifarch %{arm}
+export CFLAGS+=" -DEXYNOS_SPECIFIC"
+%endif
+
 %configure --disable-static --prefix=/usr
 
 make %{?jobs:-j%jobs}

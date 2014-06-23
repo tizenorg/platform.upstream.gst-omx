@@ -111,6 +111,60 @@ enum
   PROP_QUANT_B_FRAMES
 };
 
+/* using common scmn_imgb format */
+#define SCMN_IMGB_MAX_PLANE         (4) /* max channel count */
+
+/* image buffer definition
+    +------------------------------------------+ ---
+    |                                          |  ^
+    |     a[], p[]                             |  |
+    |     +---------------------------+ ---    |  |
+    |     |                           |  ^     |  |
+    |     |<---------- w[] ---------->|  |     |  |
+    |     |                           |  |     |  |
+    |     |                           |        |
+    |     |                           |  h[]   |  e[]
+    |     |                           |        |
+    |     |                           |  |     |  |
+    |     |                           |  |     |  |
+    |     |                           |  v     |  |
+    |     +---------------------------+ ---    |  |
+    |                                          |  v
+    +------------------------------------------+ ---
+
+    |<----------------- s[] ------------------>|
+*/
+
+typedef struct
+{
+    int      w[SCMN_IMGB_MAX_PLANE];    /* width of each image plane */
+    int      h[SCMN_IMGB_MAX_PLANE];    /* height of each image plane */
+    int      s[SCMN_IMGB_MAX_PLANE];    /* stride of each image plane */
+    int      e[SCMN_IMGB_MAX_PLANE];    /* elevation of each image plane */
+    void   * a[SCMN_IMGB_MAX_PLANE];    /* user space address of each image plane */
+    void   * p[SCMN_IMGB_MAX_PLANE];    /* physical address of each image plane, if needs */
+    int      cs;    /* color space type of image */
+    int      x;    /* left postion, if needs */
+    int      y;    /* top position, if needs */
+    int      __dummy2;    /* to align memory */
+    int      data[16];    /* arbitrary data */
+
+    /* dmabuf fd */
+    int fd[SCMN_IMGB_MAX_PLANE];
+
+    /* flag for buffer share */
+    int buf_share_method;
+} SCMN_IMGB;
+
+/* Extended color formats */
+enum {
+    OMX_EXT_COLOR_FormatNV12TPhysicalAddress = 0x7F000001, /**< Reserved region for introducing Vendor Extensions */
+    OMX_EXT_COLOR_FormatNV12LPhysicalAddress = 0x7F000002,
+    OMX_EXT_COLOR_FormatNV12Tiled = 0x7FC00002,
+    OMX_EXT_COLOR_FormatNV12TFdValue = 0x7F000012,
+    OMX_EXT_COLOR_FormatNV12LFdValue = 0x7F000013
+};
+
 /* FIXME: Better defaults */
 #define GST_OMX_VIDEO_ENC_CONTROL_RATE_DEFAULT (0xffffffff)
 #define GST_OMX_VIDEO_ENC_TARGET_BITRATE_DEFAULT (0xffffffff)
@@ -1083,6 +1137,14 @@ gst_omx_video_enc_get_supported_colorformats (GstOMXVideoEnc * self)
           GST_DEBUG_OBJECT (self, "Component supports NV12 (%d) at index %d",
               param.eColorFormat, param.nIndex);
           break;
+        case OMX_EXT_COLOR_FormatNV12LPhysicalAddress:
+            m = g_slice_new (VideoNegotiationMap);
+            m->format = GST_VIDEO_FORMAT_SN12;
+            m->type = param.eColorFormat;
+            negotiation_map = g_list_append (negotiation_map, m);
+            GST_DEBUG_OBJECT (self, "Component supports SN12 (%d) at index %d",
+                param.eColorFormat, param.nIndex);
+            break;
         default:
           GST_DEBUG_OBJECT (self,
               "Component supports unsupported color format %d at index %d",
@@ -1214,6 +1276,10 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
           ((port_def.format.video.nFrameHeight + 1) / 2));
       break;
 
+    case OMX_EXT_COLOR_FormatNV12LPhysicalAddress:
+        port_def.nBufferSize = sizeof(SCMN_IMGB);
+        break;
+
     default:
       g_assert_not_reached ();
   }
@@ -1263,12 +1329,17 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
     if (gst_omx_port_allocate_buffers (self->enc_in_port) != OMX_ErrorNone)
       return FALSE;
 
+#ifdef EXYNOS_SPECIFIC
+    /*Specific for exynos processors*/
+    if (gst_omx_port_allocate_buffers (self->enc_out_port) != OMX_ErrorNone)
+#else
     /* And disable output port */
     if (gst_omx_port_set_enabled (self->enc_out_port, FALSE) != OMX_ErrorNone)
       return FALSE;
 
     if (gst_omx_port_wait_enabled (self->enc_out_port,
             1 * GST_SECOND) != OMX_ErrorNone)
+#endif
       return FALSE;
 
     if (gst_omx_component_get_state (self->enc,
@@ -1494,6 +1565,33 @@ gst_omx_video_enc_fill_buffer (GstOMXVideoEnc * self, GstBuffer * inbuf,
       gst_video_frame_unmap (&frame);
       ret = TRUE;
       break;
+    }
+    case GST_VIDEO_FORMAT_SN12:{
+        SCMN_IMGB *ext_buf = NULL;
+        GstMemory* ext_memory = gst_buffer_peek_memory(inbuf, 1);
+        GstMapInfo ext_info =  GST_MAP_INFO_INIT;
+        if (!ext_memory) {
+            GST_WARNING_OBJECT (self, "null SCMN_IMGB in hw color format. skip this.");
+            goto done;
+        }
+
+        gst_memory_map(ext_memory, &ext_info, GST_MAP_READ);
+        ext_buf = (SCMN_IMGB*)ext_info.data;
+        gst_memory_unmap(ext_memory, &ext_info);
+        if (ext_buf != NULL && ext_buf->buf_share_method == 1) {
+          GST_LOG_OBJECT (self, "enc. fd[0]:%d  fd[1]:%d  fd[2]:%d  w[0]:%d  h[0]:%d   buf_share_method:%d",
+              ext_buf->fd[0], ext_buf->fd[1], ext_buf->fd[2], ext_buf->w[0], ext_buf->h[0], ext_buf->buf_share_method);
+        } else if (ext_buf != NULL && ext_buf->buf_share_method == 0) {
+          GST_LOG_OBJECT (self, "enc input buf uses hw addr");
+        } else {
+          GST_WARNING_OBJECT (self, "enc input buf has wrong buf_share_method");
+        }
+
+        memcpy (outbuf->omx_buf->pBuffer, ext_buf, sizeof(*ext_buf));
+        outbuf->omx_buf->nAllocLen = sizeof(*ext_buf);
+        outbuf->omx_buf->nFilledLen = sizeof(*ext_buf);
+        ret = TRUE;
+        break;
     }
     default:
       GST_ERROR_OBJECT (self, "Unsupported format");
