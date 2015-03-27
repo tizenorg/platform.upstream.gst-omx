@@ -55,15 +55,32 @@ libgstomx_la_CFLAGS = \
 	$(OMX_INCLUDEPATH) \
 	$(GST_PLUGINS_BASE_CFLAGS) \
 	$(GST_BASE_CFLAGS) \
-	$(GST_CFLAGS)
+	$(GST_CFLAGS) \
+	$(TBM_CFLAGS) \
+	$(X11_CFLAGS) \
+	$(DRI2_CFLAGS) \
+	$(DRM_SLP_CFLAGS) \
+	$(XFIXES_CFLAGS)
 libgstomx_la_LIBADD = \
 	$(GST_PLUGINS_BASE_LIBS) \
 	-lgstaudio-@GST_API_VERSION@ \
 	-lgstpbutils-@GST_API_VERSION@ \
 	-lgstvideo-@GST_API_VERSION@ \
 	$(GST_BASE_LIBS) \
-	$(GST_LIBS)
-libgstomx_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
+	$(GST_LIBS) \
+	$(TBM_LIBS) \
+	$(X11_LIBS) \
+	$(DRI2_LIBS) \
+	$(DRM_SLP_LIBS) \
+	$(XFIXES_LIBS)
+libgstomx_la_LDFLAGS = \
+	$(GST_PLUGIN_LDFLAGS) \
+	$(TBM_LDFLAGS) \
+	$(X11_LDFLAGS) \
+	$(DRI2_LDFLAGS) \
+	$(DRM_SLP_LDFLAGS) \
+	$(XFIXES_LDFLAGS)
+
 
 EXTRA_DIST = \
 	openmax \

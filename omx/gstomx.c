@@ -47,6 +47,8 @@ GST_DEBUG_CATEGORY (gstomx_debug);
 G_LOCK_DEFINE_STATIC (core_handles);
 static GHashTable *core_handles;
 
+
+
 GstOMXCore *
 gst_omx_core_acquire (const gchar * filename)
 {
@@ -68,7 +70,11 @@ gst_omx_core_acquire (const gchar * filename)
 #ifdef USE_OMX_TARGET_RPI
     {
 #else
+#ifdef USE_OMX_TARGET_ODROID
+    if (g_str_has_suffix (filename, "usr/lib/libExynosOMX_Core.so")) {
+#else
     if (g_str_has_suffix (filename, "vc/lib/libopenmaxil.so")) {
+#endif
 #endif
       gchar *bcm_host_filename;
       gchar *bcm_host_path;
@@ -289,7 +295,7 @@ gst_omx_component_handle_messages (GstOMXComponent * comp)
         OMX_U32 index = msg->content.port_settings_changed.port;
         GList *outports = NULL, *l, *k;
 
-        GST_DEBUG_OBJECT (comp->parent, "%s settings changed (port %u)",
+        GST_ERROR_OBJECT (comp->parent, "%s settings changed (port %u)",
             comp->name, index);
 
         /* FIXME: This probably can be done better */
@@ -470,7 +476,7 @@ EventHandler (OMX_HANDLETYPE hComponent, OMX_PTR pAppData, OMX_EVENTTYPE eEvent,
       GstOMXMessage *msg;
 
       /* Yes, this really happens... */
-      if (nData1 == OMX_ErrorNone)
+      if (nData2 == OMX_ErrorNone)
         break;
 
       msg = g_slice_new (GstOMXMessage);
@@ -1412,8 +1418,10 @@ gst_omx_port_release_buffer (GstOMXPort * port, GstOMXBuffer * buf)
   buf->used = TRUE;
 
   if (port->port_def.eDir == OMX_DirInput) {
+    GST_LOG_OBJECT (comp->parent,"\n[SRI-D] Calling OMX_EmptyThisBuffer. BufHeader:[%p]\n",buf->omx_buf);
     err = OMX_EmptyThisBuffer (comp->handle, buf->omx_buf);
   } else {
+      GST_ERROR_OBJECT (comp->parent,"\n[SRI-D] Calling OMX_FillThisBuffer. BufHeader:[%p]\n",buf->omx_buf);
     err = OMX_FillThisBuffer (comp->handle, buf->omx_buf);
   }
   GST_DEBUG_OBJECT (comp->parent, "Released buffer %p to %s port %u: %s "
@@ -1652,9 +1660,21 @@ gst_omx_port_allocate_buffers_unlocked (GstOMXPort * port,
     buf->port = port;
     buf->used = FALSE;
     buf->settings_cookie = port->settings_cookie;
+
+#ifdef USE_TBM
+    buf->scmn_buffer = (SCMN_IMGB*) l->data;
+#endif
+
     g_ptr_array_add (port->buffers, buf);
 
     if (buffers) {
+#ifdef USE_TBM
+        if(port->index == 0)
+            err =
+            OMX_UseBuffer (comp->handle, &buf->omx_buf, port->index, buf,
+            port->port_def.nBufferSize, buf->scmn_buffer->a[0]);
+        else
+#endif
       err =
           OMX_UseBuffer (comp->handle, &buf->omx_buf, port->index, buf,
           port->port_def.nBufferSize, l->data);
@@ -1685,7 +1705,10 @@ gst_omx_port_allocate_buffers_unlocked (GstOMXPort * port,
     g_assert (buf->omx_buf->pAppPrivate == buf);
 
     /* In the beginning all buffers are not owned by the component */
+    GST_DEBUG_OBJECT (comp->parent, "[SRI-D]: Pushing pending_buffers, port:[%d], Buffer:[%p]",
+        port->index, buf);
     g_queue_push_tail (&port->pending_buffers, buf);
+
     if (buffers || images)
       l = l->next;
   }
@@ -1716,6 +1739,68 @@ gst_omx_port_allocate_buffers (GstOMXPort * port)
   return err;
 }
 
+#ifdef USE_TBM
+/* NOTE: Uses comp->lock and comp->messages_lock */
+OMX_ERRORTYPE
+gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port)
+{
+  OMX_ERRORTYPE err = OMX_ErrorNone;
+  guint n = 0;
+  GList *buffers = NULL;
+  SCMN_IMGB *ptr = NULL;
+  int y_size = 0;
+  int uv_size = 0;
+
+  g_return_val_if_fail (port != NULL, OMX_ErrorUndefined);
+
+  g_mutex_lock (&port->comp->lock);
+
+  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 1",__func__);
+  n = port->port_def.nBufferCountActual;
+
+  for(int i = 0; i < n; i++) {
+  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 2",__func__);
+      ptr = (SCMN_IMGB*) malloc(sizeof(SCMN_IMGB));
+  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 3",__func__);
+      memset(ptr,0,sizeof(SCMN_IMGB));
+  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 4",__func__);
+      if(port->index == 0) {
+
+          ptr->bo[0] = gst_omx_tbm_allocate_bo(bufMgr, port->port_def.nBufferSize);
+          ptr->fd[0] = gst_omx_tbm_get_bo_fd(ptr->bo[0]);
+          ptr->a[0] = gst_omx_tbm_get_bo_ptr(ptr->bo[0]);
+      }
+      else { /* output port */
+
+          y_size = calc_plane(port->port_def.format.video.nFrameWidth,port->port_def.format.video.nFrameHeight);
+          ptr->bo[0] = gst_omx_tbm_allocate_bo(bufMgr, y_size);
+          ptr->fd[0] = gst_omx_tbm_get_bo_fd(ptr->bo[0]);
+          ptr->a[0] = gst_omx_tbm_get_bo_ptr(ptr->bo[0]);
+
+          uv_size = calc_plane(port->port_def.format.video.nFrameWidth,port->port_def.format.video.nFrameHeight >> 1);
+          ptr->bo[1] = gst_omx_tbm_allocate_bo(bufMgr, uv_size);
+          ptr->fd[1] = gst_omx_tbm_get_bo_fd(ptr->bo[1]);
+          ptr->a[1] = gst_omx_tbm_get_bo_ptr(ptr->bo[1]);
+
+          ptr->y_size = y_size;
+          ptr->uv_size = uv_size;
+          ptr->buf_share_method = BUF_SHARE_METHOD_FD;
+
+//          GST_ERROR_OBJECT(self, "\n[SRI-D] Buffer count: [%d] Video width:[%d],Video Height:[%d]",port->port_def.nBufferCountActual,
+      }
+  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 5",__func__);
+      buffers = g_list_append(buffers,(gpointer)ptr);
+  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 6",__func__);
+  }
+
+  n = g_list_length ((GList *) buffers);
+  err = gst_omx_port_allocate_buffers_unlocked (port, buffers, NULL, n);
+  g_mutex_unlock (&port->comp->lock);
+
+  return err;
+}
+
+#endif
 /* NOTE: Uses comp->lock and comp->messages_lock */
 OMX_ERRORTYPE
 gst_omx_port_use_buffers (GstOMXPort * port, const GList * buffers)
@@ -1793,6 +1878,15 @@ gst_omx_port_deallocate_buffers_unlocked (GstOMXPort * port)
           "port %u", buf, comp->name, port->index);
     }
 
+#ifdef USE_TBM
+    /* deallocate tbm buffers */
+    if(buf->scmn_buffer != NULL) {
+
+        gst_omx_tbm_deallocate_bo(buf->scmn_buffer->bo[0]);
+        if(port->index == 1) /* output port */
+            gst_omx_tbm_deallocate_bo(buf->scmn_buffer->bo[1]);
+    }
+#endif
     /* omx_buf can be NULL if allocation failed earlier
      * and we're just shutting down
      *
@@ -2089,7 +2183,7 @@ gst_omx_port_populate_unlocked (GstOMXPort * port)
        * valid anymore after the buffer was consumed
        */
       buf->omx_buf->nFlags = 0;
-
+      GST_ERROR_OBJECT(comp->parent,"Calling OMX_FillThisBuffer. buffer[%p]. function:[%s]",buf->omx_buf,__func__);
       err = OMX_FillThisBuffer (comp->handle, buf->omx_buf);
 
       if (err != OMX_ErrorNone) {
@@ -2549,6 +2643,76 @@ gst_omx_set_default_role (GstOMXClassData * class_data,
   if (!class_data->component_role)
     class_data->component_role = default_role;
 }
+
+#ifdef USE_TBM
+
+int
+calc_plane(int width, int height)
+{
+    int mbX, mbY;
+
+    mbX = ALIGN(width, S5P_FIMV_NV12MT_HALIGN);
+    mbY = ALIGN(height, S5P_FIMV_NV12MT_VALIGN);
+
+    return ALIGN(mbX * mbY, S5P_FIMV_DEC_BUF_ALIGN);
+}
+
+int
+calc_yplane(int width, int height)
+{
+    int mbX, mbY;
+
+    mbX = ALIGN(width + 24, S5P_FIMV_NV12MT_HALIGN);
+    mbY = ALIGN(height + 16, S5P_FIMV_NV12MT_VALIGN);
+
+    return ALIGN(mbX * mbY, S5P_FIMV_DEC_BUF_ALIGN);
+}
+
+int
+calc_uvplane(int width, int height)
+{
+    int mbX, mbY;
+
+    mbX = ALIGN(width + 16, S5P_FIMV_NV12MT_HALIGN);
+    mbY = ALIGN(height + 4, S5P_FIMV_NV12MT_VALIGN);
+
+    return ALIGN(mbX * mbY, S5P_FIMV_DEC_BUF_ALIGN);
+}
+
+tbm_bo
+gst_omx_tbm_allocate_bo(tbm_bufmgr hBufmgr, int size)
+{
+    return tbm_bo_alloc(hBufmgr,size, TBM_BO_WC);
+}
+
+void
+gst_omx_tbm_deallocate_bo(tbm_bo bo)
+{
+    tbm_bo_unmap(bo);
+    tbm_bo_unref(bo);
+}
+
+OMX_U32
+gst_omx_tbm_get_bo_fd(tbm_bo bo)
+{
+  tbm_bo_handle TBMBoHandle;
+  TBMBoHandle = tbm_bo_get_handle(bo, TBM_DEVICE_MM);
+  if(TBMBoHandle.ptr != NULL)
+    return TBMBoHandle.u32;
+  return 0;
+}
+
+OMX_PTR
+gst_omx_tbm_get_bo_ptr(tbm_bo bo)
+{
+  tbm_bo_handle TBMBoHandle;
+  TBMBoHandle = tbm_bo_map(bo, TBM_DEVICE_CPU,TBM_OPTION_WRITE);
+  if(TBMBoHandle.ptr != NULL)
+    return TBMBoHandle.ptr;
+  return NULL;
+}
+
+#endif
 
 static void
 _class_init (gpointer g_class, gpointer data)

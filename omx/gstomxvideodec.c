@@ -34,63 +34,10 @@
 GST_DEBUG_CATEGORY_STATIC (gst_omx_video_dec_debug_category);
 #define GST_CAT_DEFAULT gst_omx_video_dec_debug_category
 
-/* using common scmn_imgb format */
-#define SCMN_IMGB_MAX_PLANE         (4) /* max channel count */
-
-/* image buffer definition
-    +------------------------------------------+ ---
-    |                                          |  ^
-    |     a[], p[]                             |  |
-    |     +---------------------------+ ---    |  |
-    |     |                           |  ^     |  |
-    |     |<---------- w[] ---------->|  |     |  |
-    |     |                           |  |     |  |
-    |     |                           |        |
-    |     |                           |  h[]   |  e[]
-    |     |                           |        |
-    |     |                           |  |     |  |
-    |     |                           |  |     |  |
-    |     |                           |  v     |  |
-    |     +---------------------------+ ---    |  |
-    |                                          |  v
-    +------------------------------------------+ ---
-
-    |<----------------- s[] ------------------>|
-*/
-
-typedef struct
-{
-    int      w[SCMN_IMGB_MAX_PLANE];    /* width of each image plane */
-    int      h[SCMN_IMGB_MAX_PLANE];    /* height of each image plane */
-    int      s[SCMN_IMGB_MAX_PLANE];    /* stride of each image plane */
-    int      e[SCMN_IMGB_MAX_PLANE];    /* elevation of each image plane */
-    void   * a[SCMN_IMGB_MAX_PLANE];    /* user space address of each image plane */
-    void   * p[SCMN_IMGB_MAX_PLANE];    /* physical address of each image plane, if needs */
-    int      cs;    /* color space type of image */
-    int      x;    /* left postion, if needs */
-    int      y;    /* top position, if needs */
-    int      __dummy2;    /* to align memory */
-    int      data[16];    /* arbitrary data */
-
-    /* dmabuf fd */
-    int fd[SCMN_IMGB_MAX_PLANE];
-
-    /* flag for buffer share */
-    int buf_share_method;
-} SCMN_IMGB;
-
-/* Extended color formats */
-enum {
-    OMX_EXT_COLOR_FormatNV12TPhysicalAddress = 0x7F000001, /**< Reserved region for introducing Vendor Extensions */
-    OMX_EXT_COLOR_FormatNV12LPhysicalAddress = 0x7F000002,
-    OMX_EXT_COLOR_FormatNV12Tiled = 0x7FC00002,
-    OMX_EXT_COLOR_FormatNV12TFdValue = 0x7F000012,
-    OMX_EXT_COLOR_FormatNV12LFdValue = 0x7F000013
-};
-
 typedef struct _GstOMXMemory GstOMXMemory;
 typedef struct _GstOMXMemoryAllocator GstOMXMemoryAllocator;
 typedef struct _GstOMXMemoryAllocatorClass GstOMXMemoryAllocatorClass;
+
 
 struct _GstOMXMemory
 {
@@ -268,7 +215,6 @@ struct _GstOMXBufferPool
   GstOMXComponent *component;
   GstOMXPort *port;
 
-  /* For handling OpenMAX allocated memory */
   GstAllocator *allocator;
 
   /* Set from outside this pool */
@@ -774,6 +720,11 @@ gst_omx_video_dec_init (GstOMXVideoDec * self)
 
   g_mutex_init (&self->drain_lock);
   g_cond_init (&self->drain_cond);
+
+#ifdef USE_TBM
+  self->hTBMBufMgr = NULL;
+  self->drm_fd = -1;
+#endif
 }
 
 static gboolean
@@ -829,6 +780,15 @@ gst_omx_video_dec_open (GstVideoDecoder * decoder)
   if (!self->dec_in_port || !self->dec_out_port)
     return FALSE;
 
+#ifdef USE_TBM
+
+   self->hTBMBufMgr = tbm_bufmgr_init(self->drm_fd);
+   if(self->hTBMBufMgr == NULL){
+    GST_ERROR_OBJECT (self, "TBM initialization failed.");
+    return FALSE;
+   }
+#endif
+
   GST_DEBUG_OBJECT (self, "Opened decoder");
 
   return TRUE;
@@ -853,6 +813,20 @@ gst_omx_video_dec_shutdown (GstOMXVideoDec * self)
     if (state > OMX_StateLoaded)
       gst_omx_component_get_state (self->dec, 5 * GST_SECOND);
   }
+
+#ifdef USE_TBM
+   /* uninitialize tbm buffer manager */
+   if(self->hTBMBufMgr != NULL){
+    tbm_bufmgr_deinit(self->hTBMBufMgr);
+    self->hTBMBufMgr = NULL;
+   }
+
+   if(self->drm_fd != -1) {
+       GST_DEBUG_OBJECT (self, "close drm fd");
+       close(self->drm_fd);
+       self->drm_fd = -1;
+   }
+#endif
 
   return TRUE;
 }
@@ -1069,6 +1043,7 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
   }
 
   /* Same strides and everything */
+#if 0  //ENS:a
   if (gst_buffer_get_size (outbuf) == inbuf->omx_buf->nFilledLen) {
     GstMapInfo map = GST_MAP_INFO_INIT;
 
@@ -1080,6 +1055,7 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
     ret = TRUE;
     goto done;
   }
+#endif  //ENS:a
 
   /* Different strides */
 
@@ -1180,10 +1156,10 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
         void *imgb_data = NULL;
 
         out_imgb = (SCMN_IMGB*)(inbuf->omx_buf->pBuffer);
-        if (out_imgb->buf_share_method == 1) {
+        if (out_imgb->buf_share_method == BUF_SHARE_METHOD_FD) {
           GST_LOG_OBJECT (self, "dec output buf: fd[0]:%d  fd[1]:%d fd[2]:%d  w[0]:%d h[0]:%d  buf_share_method:%d",
                   out_imgb->fd[0], out_imgb->fd[1], out_imgb->fd[2], out_imgb->w[0], out_imgb->h[0], out_imgb->buf_share_method);
-        } else if (out_imgb->buf_share_method == 0) {
+        } else if (out_imgb->buf_share_method == BUF_SHARE_METHOD_PADDR) {
           GST_LOG_OBJECT (self, "dec output uses hw addr");
         } else {
           GST_WARNING_OBJECT (self, "dec output buf has wrong buf_share_method");
@@ -1199,7 +1175,7 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
             imgb_data = imgb_info.data;
             gst_memory_unmap(mem_imgb, &imgb_info);
         }
-        memcpy(imgb_data, out_imgb, sizeof(*out_imgb));
+        memcpy(imgb_data, out_imgb, sizeof(SCMN_IMGB));
         ret = TRUE;
         break;
     }
@@ -1314,8 +1290,13 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
       }
       was_enabled = FALSE;
     }
-
+#ifdef USE_TBM
+    //GST_ERROR_OBJECT (self, "1. USE_TBM");
+    err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port);
+#else
+    //GST_ERROR_OBJECT (self, "1. NOT USE_TBM");
     err = gst_omx_port_allocate_buffers (port);
+#endif
     if (err != OMX_ErrorNone && min > port->port_def.nBufferCountMin) {
       GST_ERROR_OBJECT (self,
           "Failed to allocate required number of buffers %d, trying less and copying",
@@ -1339,9 +1320,13 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
           goto done;
         }
       }
-
+#ifdef USE_TBM
+      //GST_ERROR_OBJECT (self, "2. USE_TBM");
+      err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port);
+#else
+      //GST_ERROR_OBJECT (self, "2. NOT USE_TBM");
       err = gst_omx_port_allocate_buffers (port);
-
+#endif
       /* Can't provide buffers downstream in this case */
       gst_caps_replace (&caps, NULL);
     }
@@ -1486,17 +1471,17 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     switch (port_def.format.video.eColorFormat) {
       case OMX_COLOR_FormatYUV420Planar:
       case OMX_COLOR_FormatYUV420PackedPlanar:
-        GST_DEBUG_OBJECT (self, "Output is I420 (%d)",
+        GST_ERROR_OBJECT (self, "Output is I420 (%d)",
             port_def.format.video.eColorFormat);
         format = GST_VIDEO_FORMAT_I420;
         break;
       case OMX_COLOR_FormatYUV420SemiPlanar:
-        GST_DEBUG_OBJECT (self, "Output is NV12 (%d)",
+        GST_ERROR_OBJECT (self, "Output is NV12 (%d)",
             port_def.format.video.eColorFormat);
         format = GST_VIDEO_FORMAT_NV12;
         break;
       case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
-        GST_DEBUG_OBJECT (self, "Output is ST12 (%d)",
+        GST_ERROR_OBJECT (self, "Output is ST12 (%d)",
             port_def.format.video.eColorFormat);
         format = GST_VIDEO_FORMAT_ST12;
         break;
@@ -1511,7 +1496,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     }
 
     GST_DEBUG_OBJECT (self,
-        "Setting output state: format %s, width %d, height %d",
+        "Setting output state: format %s, width %lu, height %lu",
         gst_video_format_to_string (format),
         port_def.format.video.nFrameWidth, port_def.format.video.nFrameHeight);
 
@@ -1559,13 +1544,13 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
    * is called at the wrong time
    */
   if (gst_omx_port_is_flushing (self->dec_out_port)) {
-    GST_DEBUG_OBJECT (self, "Flushing");
+    GST_ERROR_OBJECT (self, "Flushing");
     gst_omx_port_release_buffer (self->dec_out_port, buf);
     goto flushing;
   }
 
-  GST_DEBUG_OBJECT (self, "Handling buffer: 0x%08x %lu",
-      buf->omx_buf->nFlags, buf->omx_buf->nTimeStamp);
+  GST_DEBUG_OBJECT (self, "Handling buffer: 0x%08lx %" G_GUINT64_FORMAT,
+      buf->omx_buf->nFlags, (guint64) buf->omx_buf->nTimeStamp);
 
   GST_VIDEO_DECODER_STREAM_LOCK (self);
   frame = _find_nearest_frame (self, buf);
@@ -1917,7 +1902,7 @@ gst_omx_video_dec_get_supported_colorformats (GstOMXVideoDec * self)
           m->format = GST_VIDEO_FORMAT_I420;
           m->type = param.eColorFormat;
           negotiation_map = g_list_append (negotiation_map, m);
-          GST_DEBUG_OBJECT (self, "Component supports I420 (%d) at index %d",
+          GST_DEBUG_OBJECT (self, "Component supports I420 (%d) at index %lu",
               param.eColorFormat, param.nIndex);
           break;
         case OMX_COLOR_FormatYUV420SemiPlanar:
@@ -1925,7 +1910,7 @@ gst_omx_video_dec_get_supported_colorformats (GstOMXVideoDec * self)
           m->format = GST_VIDEO_FORMAT_NV12;
           m->type = param.eColorFormat;
           negotiation_map = g_list_append (negotiation_map, m);
-          GST_DEBUG_OBJECT (self, "Component supports NV12 (%d) at index %d",
+          GST_DEBUG_OBJECT (self, "Component supports NV12 (%d) at index %lu",
               param.eColorFormat, param.nIndex);
           break;
         case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
@@ -1939,7 +1924,7 @@ gst_omx_video_dec_get_supported_colorformats (GstOMXVideoDec * self)
 
         default:
           GST_DEBUG_OBJECT (self,
-              "Component supports unsupported color format %d at index %d",
+              "Component supports unsupported color format %d at index %lu",
               param.eColorFormat, param.nIndex);
           break;
       }
@@ -1961,6 +1946,9 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
   GstVideoFormat format;
   GstStructure *s;
   const gchar *format_str;
+  gchar *format_tmp;
+  int i;
+  EnableGemBuffersParams gemBuffers;
 
   GST_DEBUG_OBJECT (self, "Trying to negotiate a video format with downstream");
 
@@ -2000,11 +1988,27 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
     return FALSE;
   }
 
-  intersection = gst_caps_truncate (intersection);
-  intersection = gst_caps_fixate (intersection);
+  for(i=0; i<gst_caps_get_size(intersection); i++)
+  {
+      s = gst_caps_get_structure (intersection, i);
+      format_tmp = gst_structure_get_string (s, "format");
 
-  s = gst_caps_get_structure (intersection, 0);
-  format_str = gst_structure_get_string (s, "format");
+      if(!strncmp(format_tmp, "S", 1)) {
+          format_str = format_tmp;
+          GST_DEBUG_OBJECT (self, "SEC format found");
+          break;
+      }
+  }
+
+  if(!format_str) {
+    intersection = gst_caps_truncate (intersection);
+    intersection = gst_caps_fixate (intersection);
+
+    s = gst_caps_get_structure (intersection, 0);
+    format_str = gst_structure_get_string (s, "format");
+    GST_DEBUG_OBJECT (self, "first structure will be fixated");
+  }
+
   if (!format_str ||
       (format =
           gst_video_format_from_string (format_str)) ==
@@ -2043,6 +2047,21 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
         gst_omx_error_to_string (err), err);
   }
 
+  /* set plateform specific gem buffer settings. */
+
+    /* Set platform specific buffer settings. to avoid plane support error.. */
+#ifdef USE_TBM
+    OMX_INIT_STRUCTURE(gemBuffers);
+    gemBuffers.enable = OMX_TRUE;
+    gemBuffers.nPortIndex = 1;
+      err =
+      gst_omx_component_set_parameter (self->dec,
+      OMX_IndexParamEnablePlatformSpecificBuffers,&gemBuffers);
+  if (err != OMX_ErrorNone) {
+    GST_ERROR_OBJECT (self, "Failed to set video port format: %s (0x%08x)",
+        gst_omx_error_to_string (err), err);
+  }
+#endif
   return (err == OMX_ErrorNone);
 }
 
@@ -2176,13 +2195,23 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   GST_DEBUG_OBJECT (self, "Enabling component");
 
   if (needs_disable) {
+   // printf("\n[SRI-D] needs_disable");
     if (gst_omx_port_set_enabled (self->dec_in_port, TRUE) != OMX_ErrorNone)
       return FALSE;
+#ifdef USE_TBM
+    //GST_ERROR_OBJECT (self, "\n3. USE_TBM");
+    if(gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,self->dec_in_port) != OMX_ErrorNone)
+     return FALSE;
+#else
+    //GST_ERROR_OBJECT (self, "\n3. NOT USE_TBM");
     if (gst_omx_port_allocate_buffers (self->dec_in_port) != OMX_ErrorNone)
       return FALSE;
+#endif
+
     if (gst_omx_port_wait_enabled (self->dec_in_port,
             5 * GST_SECOND) != OMX_ErrorNone)
       return FALSE;
+
     if (gst_omx_port_mark_reconfigured (self->dec_in_port) != OMX_ErrorNone)
       return FALSE;
   } else {
@@ -2193,37 +2222,54 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
       return FALSE;
 
     /* Need to allocate buffers to reach Idle state */
+   //printf("\n[SRI-D] outside needs_disable\n");
+#ifdef USE_TBM
+    //GST_ERROR_OBJECT (self, "\n4. USE_TBM");
+    if(gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,self->dec_in_port) != OMX_ErrorNone)
+     return FALSE;
+#else
+    //GST_ERROR_OBJECT (self, "\n4. NOT USE_TBM");
     if (gst_omx_port_allocate_buffers (self->dec_in_port) != OMX_ErrorNone)
       return FALSE;
+#endif
 
-#ifdef EXYNOS_SPECIFIC
-    /*Specific for exynos processors*/
-    if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
+#ifdef USE_TBM
+    //GST_ERROR_OBJECT (self, "\n5. USE_TBM");
+    if(gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,self->dec_out_port) != OMX_ErrorNone)
+     return FALSE;
 #else
+    //GST_ERROR_OBJECT (self, "\n5. NOT USE_TBM");
+    if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
+      return FALSE
+#endif
+#if 0
+    GST_ERROR_OBJECT (self, "\n6. DISABLE OUTPUT PORT\n");
     /* And disable output port */
     if (gst_omx_port_set_enabled (self->dec_out_port, FALSE) != OMX_ErrorNone)
       return FALSE;
-
+    GST_ERROR_OBJECT (self, "\n7. DISABLE OUTPUT PORT WAIT\n");
     if (gst_omx_port_wait_enabled (self->dec_out_port,
             1 * GST_SECOND) != OMX_ErrorNone)
-#endif
       return FALSE;
-
+#endif
+    //GST_ERROR_OBJECT (self, "\n7. GET COMPONENT STATE\n");
     if (gst_omx_component_get_state (self->dec,
             GST_CLOCK_TIME_NONE) != OMX_StateIdle)
       return FALSE;
-
+    //GST_ERROR_OBJECT (self, "\n8. SET COMPONENT STATE TO EXECUTING\n");
     if (gst_omx_component_set_state (self->dec,
             OMX_StateExecuting) != OMX_ErrorNone)
       return FALSE;
-
+    GST_ERROR_OBJECT (self, "\n9. GET COMPONENT STATE\n");
     if (gst_omx_component_get_state (self->dec,
             GST_CLOCK_TIME_NONE) != OMX_StateExecuting)
       return FALSE;
   }
 
   /* Unset flushing to allow ports to accept data again */
+    //GST_ERROR_OBJECT (self, "\n10. FLUSHING INPUT PORT\n");
   gst_omx_port_set_flushing (self->dec_in_port, 5 * GST_SECOND, FALSE);
+    //GST_ERROR_OBJECT (self, "\n11. FLUSHING OUTPUT PORT\n");
   gst_omx_port_set_flushing (self->dec_out_port, 5 * GST_SECOND, FALSE);
 
   if (gst_omx_component_get_last_error (self->dec) != OMX_ErrorNone) {
@@ -2233,6 +2279,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     return FALSE;
   }
 
+    //GST_ERROR_OBJECT (self, "\n12. STARTING TASK AGAIN\n");
   /* Start the srcpad loop again */
   GST_DEBUG_OBJECT (self, "Starting task again");
 
@@ -2378,8 +2425,11 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
         GST_VIDEO_DECODER_STREAM_LOCK (self);
         goto reconfigure_error;
       }
-
+#ifdef USE_TBM
+      err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port);
+#else
       err = gst_omx_port_allocate_buffers (port);
+#endif
       if (err != OMX_ErrorNone) {
         GST_VIDEO_DECODER_STREAM_LOCK (self);
         goto reconfigure_error;
@@ -2429,10 +2479,17 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
       buf->omx_buf->nFlags |= OMX_BUFFERFLAG_CODECCONFIG;
       buf->omx_buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
       buf->omx_buf->nFilledLen = gst_buffer_get_size (codec_data);;
+#ifdef USE_TBM
+      //GST_ERROR_OBJECT(self,"\n[SRI-D] extract from codec_data\n");
+      gst_buffer_extract (codec_data, 0,
+          buf->scmn_buffer->a[0] + buf->omx_buf->nOffset,
+          buf->omx_buf->nFilledLen);
+#else
       gst_buffer_extract (codec_data, 0,
           buf->omx_buf->pBuffer + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
-
+#endif
+      //GST_ERROR_OBJECT(self,"\n[SRI-D] extract from codec_data SUCCESS\n");
       if (GST_CLOCK_TIME_IS_VALID (timestamp))
         buf->omx_buf->nTimeStamp =
             gst_util_uint64_scale (timestamp, OMX_TICKS_PER_SECOND, GST_SECOND);
@@ -2456,10 +2513,21 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
      * by the port */
     buf->omx_buf->nFilledLen =
         MIN (size - offset, buf->omx_buf->nAllocLen - buf->omx_buf->nOffset);
+    GST_DEBUG_OBJECT (self, "nFilledLen %d, %p", buf->omx_buf->nFilledLen, buf->omx_buf->pBuffer);
+
+    /*GST_ERROR_OBJECT (self, "[SRI-D] frame->input_buffer:[%p], offset:[%d], buf->scmn_buffer->a[0]:[%p],offset:[%d], buf->omx_buf->nFilledLen:[%d]",
+    frame->input_buffer, offset, buf->scmn_buffer->a[0], buf->omx_buf->nOffset, buf->omx_buf->nFilledLen);*/
+#ifdef USE_TBM
+      //GST_ERROR_OBJECT(self,"\n[SRI-D] extract from frame->input_buffer\n");
+      gst_buffer_extract (frame->input_buffer, offset,
+          buf->scmn_buffer->a[0] + buf->omx_buf->nOffset,
+          buf->omx_buf->nFilledLen);
+#else
     gst_buffer_extract (frame->input_buffer, offset,
         buf->omx_buf->pBuffer + buf->omx_buf->nOffset,
         buf->omx_buf->nFilledLen);
-
+#endif
+      //GST_ERROR_OBJECT(self,"\n[SRI-D] extract from frame->input_buffer SUCCESS\n");
     if (timestamp != GST_CLOCK_TIME_NONE) {
       buf->omx_buf->nTimeStamp =
           gst_util_uint64_scale (timestamp, OMX_TICKS_PER_SECOND, GST_SECOND);
@@ -2688,3 +2756,4 @@ gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec, GstQuery * query)
 
   return TRUE;
 }
+

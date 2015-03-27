@@ -27,6 +27,22 @@
 
 #include "gstomx.h"
 
+#define OMX_VERSION_MAJOR 1
+#define OMX_VERSION_MINOR 1
+#define OMX_VERSION_REVISION 2
+#define OMX_VERSION_STEP 0
+
+#define OMX_VERSION ((OMX_VERSION_STEP<<24) | (OMX_VERSION_REVISION<<16) | (OMX_VERSION_MINOR<<8) | OMX_VERSION_MAJOR)
+
+#define OMX_INIT_STRUCTURE(a) \
+    memset(&(a), 0, sizeof(a)); \
+    (a).nSize = sizeof(a); \
+    (a).nVersion.nVersion = OMX_VERSION; \
+    (a).nVersion.s.nVersionMajor = OMX_VERSION_MAJOR; \
+    (a).nVersion.s.nVersionMinor = OMX_VERSION_MINOR; \
+    (a).nVersion.s.nRevision = OMX_VERSION_REVISION; \
+    (a).nVersion.s.nStep = OMX_VERSION_STEP
+
 G_BEGIN_DECLS
 
 #define GST_TYPE_OMX_VIDEO_DEC \
@@ -74,6 +90,10 @@ struct _GstOMXVideoDec
   gboolean eos;
 
   GstFlowReturn downstream_flow_ret;
+#ifdef USE_TBM
+  gint drm_fd;
+  tbm_bufmgr hTBMBufMgr;
+#endif
 };
 
 struct _GstOMXVideoDecClass

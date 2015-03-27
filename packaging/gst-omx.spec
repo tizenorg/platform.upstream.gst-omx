@@ -11,6 +11,13 @@ BuildRequires:  which
 BuildRequires:  pkgconfig(gstreamer-1.0)
 BuildRequires:  pkgconfig(gstreamer-plugins-base-1.0)
 
+BuildRequires: pkgconfig(x11)
+BuildRequires: pkgconfig(dri2proto)
+BuildRequires: pkgconfig(libdri2)
+BuildRequires: pkgconfig(libdrm)
+BuildRequires: pkgconfig(libtbm)
+BuildRequires: pkgconfig(xfixes)
+
 %description
 gst-openmax is a GStreamer plug-in that allows communication with OpenMAX IL components.
 Multiple OpenMAX IL implementations can be used.
@@ -25,6 +32,7 @@ cp %{SOURCE1001} .
 
 %ifarch %{arm}
 export CFLAGS+=" -DEXYNOS_SPECIFIC"
+export CFLAGS+=" -DUSE_TBM"
 %endif
 
 %configure --disable-static --prefix=/usr
@@ -34,9 +42,16 @@ make %{?jobs:-j%jobs}
 
 %install
 rm -rf %{buildroot}
+mkdir -p %{buildroot}/usr/share/license
+cp COPYING %{buildroot}/usr/share/license/%{name}
+mkdir -p %{buildroot}/root/.config
+cp -arf config/odroid/gstomx.conf %{buildroot}/root/.config
 %make_install
 
 %files
 %manifest gst-omx.manifest
+%defattr(-,root,root,-)
 %{_libdir}/gstreamer-1.0/libgstomx.so
+/root/.config/gstomx.conf
+/usr/share/license/%{name}
 

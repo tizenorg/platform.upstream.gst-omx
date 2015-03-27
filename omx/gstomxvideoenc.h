@@ -24,6 +24,7 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/video/gstvideoencoder.h>
+#include <tbm_bufmgr.h>
 
 #include "gstomx.h"
 
