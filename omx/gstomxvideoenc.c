@@ -211,6 +211,10 @@ gst_omx_video_enc_init (GstOMXVideoEnc * self)
 
   g_mutex_init (&self->drain_lock);
   g_cond_init (&self->drain_cond);
+#ifdef USE_TBM
+  self->hTBMBufMgr = NULL;
+  self->drm_fd = -1;
+#endif
 }
 
 static gboolean
@@ -357,7 +361,13 @@ gst_omx_video_enc_open (GstVideoEncoder * encoder)
       }
     }
   }
-
+#ifdef USE_TBM
+   self->hTBMBufMgr = tbm_bufmgr_init(self->drm_fd);
+   if(self->hTBMBufMgr == NULL){
+    GST_ERROR_OBJECT (self, "TBM initialization failed.");
+    return FALSE;
+   }
+#endif
   return TRUE;
 }
 
@@ -810,8 +820,12 @@ gst_omx_video_enc_loop (GstOMXVideoEnc * self)
       err = gst_omx_port_set_enabled (port, TRUE);
       if (err != OMX_ErrorNone)
         goto reconfigure_error;
-
+#ifdef USE_TBM
+    err = gst_omx_port_tbm_allocate_enc_buffers(self->hTBMBufMgr,port,
+        self->enc_in_port->port_def.format.video.eCompressionFormat);
+#else
       err = gst_omx_port_allocate_buffers (port);
+#endif
       if (err != OMX_ErrorNone)
         goto reconfigure_error;
 
@@ -1091,6 +1105,14 @@ gst_omx_video_enc_get_supported_colorformats (GstOMXVideoEnc * self)
             GST_DEBUG_OBJECT (self, "Component supports SN12 (%d) at index %d",
                 param.eColorFormat, param.nIndex);
             break;
+        case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
+            m = g_slice_new (VideoNegotiationMap);
+            m->format = GST_VIDEO_FORMAT_ST12;
+            m->type = param.eColorFormat;
+            negotiation_map = g_list_append (negotiation_map, m);
+            GST_DEBUG_OBJECT (self, "Component supports ST12 (%d) at index %d",
+                param.eColorFormat, param.nIndex);
+            break;
         default:
           GST_DEBUG_OBJECT (self,
               "Component supports unsupported color format %d at index %d",
@@ -1226,6 +1248,10 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
         port_def.nBufferSize = sizeof(SCMN_IMGB);
         break;
 
+    case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
+        port_def.nBufferSize = sizeof(SCMN_IMGB);
+        break;
+
     default:
       g_assert_not_reached ();
   }
@@ -1260,8 +1286,14 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
   if (needs_disable) {
     if (gst_omx_port_set_enabled (self->enc_in_port, TRUE) != OMX_ErrorNone)
       return FALSE;
+#ifdef USE_TBM
+    if(gst_omx_port_tbm_allocate_enc_buffers(self->hTBMBufMgr,self->enc_in_port,
+        self->enc_in_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
+        return FALSE;
+#else
     if (gst_omx_port_allocate_buffers (self->enc_in_port) != OMX_ErrorNone)
       return FALSE;
+#endif
     if (gst_omx_port_wait_enabled (self->enc_in_port,
             5 * GST_SECOND) != OMX_ErrorNone)
       return FALSE;
@@ -1272,12 +1304,20 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
       return FALSE;
 
     /* Need to allocate buffers to reach Idle state */
+#ifdef USE_TBM
+    if(gst_omx_port_tbm_allocate_enc_buffers(self->hTBMBufMgr,self->enc_in_port,
+        self->enc_in_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
+        return FALSE;
+#else
     if (gst_omx_port_allocate_buffers (self->enc_in_port) != OMX_ErrorNone)
       return FALSE;
+#endif
 
 #ifdef EXYNOS_SPECIFIC
     /*Specific for exynos processors*/
-    if (gst_omx_port_allocate_buffers (self->enc_out_port) != OMX_ErrorNone)
+    /*if (gst_omx_port_allocate_buffers (self->enc_out_port) != OMX_ErrorNone)*/
+    if(gst_omx_port_tbm_allocate_enc_buffers(self->hTBMBufMgr,self->enc_out_port,
+        self->enc_in_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
 #else
     /* And disable output port */
     if (gst_omx_port_set_enabled (self->enc_out_port, FALSE) != OMX_ErrorNone)
@@ -1512,6 +1552,7 @@ gst_omx_video_enc_fill_buffer (GstOMXVideoEnc * self, GstBuffer * inbuf,
       ret = TRUE;
       break;
     }
+    case GST_VIDEO_FORMAT_ST12:
     case GST_VIDEO_FORMAT_SN12:{
         SCMN_IMGB *ext_buf = NULL;
         GstMemory* ext_memory = gst_buffer_peek_memory(inbuf, 1);
@@ -1626,8 +1667,12 @@ gst_omx_video_enc_handle_frame (GstVideoEncoder * encoder,
         GST_VIDEO_ENCODER_STREAM_LOCK (self);
         goto reconfigure_error;
       }
-
+#ifdef USE_TBM
+    err = gst_omx_port_tbm_allocate_enc_buffers(self->hTBMBufMgr,port,
+        self->enc_in_port->port_def.format.video.eCompressionFormat);
+#else
       err = gst_omx_port_allocate_buffers (port);
+#endif
       if (err != OMX_ErrorNone) {
         GST_VIDEO_ENCODER_STREAM_LOCK (self);
         goto reconfigure_error;

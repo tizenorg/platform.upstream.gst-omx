@@ -462,7 +462,8 @@ gboolean          gst_omx_port_is_flushing (GstOMXPort *port);
 
 OMX_ERRORTYPE     gst_omx_port_allocate_buffers (GstOMXPort *port);
 #ifdef USE_TBM
-OMX_ERRORTYPE     gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr  bufMgr, GstOMXPort * port);
+OMX_ERRORTYPE     gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr  bufMgr, GstOMXPort * port, int eCompressionFormat);
+OMX_ERRORTYPE     gst_omx_port_tbm_allocate_enc_buffers (tbm_bufmgr  bufMgr, GstOMXPort * port, int eCompressionFormat);
 #endif
 OMX_ERRORTYPE     gst_omx_port_use_buffers (GstOMXPort *port, const GList *buffers);
 OMX_ERRORTYPE     gst_omx_port_use_eglimages (GstOMXPort *port, const GList *images);
@@ -497,6 +498,8 @@ void              gst_omx_set_default_role (GstOMXClassData *class_data, const g
 int calc_plane(int width, int height);
 int calc_yplane(int width, int height);
 int calc_uvplane(int width, int height);
+int gst_omx_calculate_y_size(int compressionFormat, int width, int height);
+int gst_omx_calculate_uv_size(int compressionFormat, int width, int height);
 
 tbm_bo            gst_omx_tbm_allocate_bo(tbm_bufmgr hBufmgr, int size);
 void              gst_omx_tbm_deallocate_bo(tbm_bo bo);

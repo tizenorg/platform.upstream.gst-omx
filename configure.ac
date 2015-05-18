@@ -206,6 +206,9 @@ case "${ac_cv_omx_target}" in
   bellagio)
     AC_DEFINE(USE_OMX_TARGET_BELLAGIO, 1, [Use Bellagio OpenMAX IL target])
     ;;
+ odroid)
+    AC_DEFINE(USE_OMX_TARGET_ODROID, 1, [Use Odroid OpenMAX IL target])
+    ;;
   *)
     AC_ERROR([invalid OpenMAX IL target])
     ;;
@@ -213,6 +216,7 @@ esac
 AM_CONDITIONAL(USE_OMX_TARGET_GENERIC, test "x$ac_cv_omx_target" = "xgeneric")
 AM_CONDITIONAL(USE_OMX_TARGET_BELLAGIO, test "x$ac_cv_omx_target" = "xbellagio")
 AM_CONDITIONAL(USE_OMX_TARGET_RPI, test "x$ac_cv_omx_target" = "xrpi")
+AM_CONDITIONAL(USE_OMX_TARGET_ODROID, test "x$ac_cv_omx_target" = "xodroid")
 
 AC_ARG_WITH([omx-struct-packing],
         AS_HELP_STRING([--with-omx-struct-packing],[Force OpenMAX struct packing, (default is none)]),
@@ -325,6 +329,33 @@ AC_SUBST(GST_PLUGIN_LDFLAGS)
 
 dnl *** output files ***
 
+dnl use dri2proto
+PKG_CHECK_MODULES(DRI2PROTO, dri2proto)
+AC_SUBST(DRI2PROTO_CFLAGS)
+AC_SUBST(DRI2PROTO_LIBS)
+
+dnl drm buffer
+PKG_CHECK_MODULES(X11, x11)
+AC_SUBST(X11_LDFLAGS)
+AC_SUBST(X11_CFLAGS)
+AC_SUBST(X11_LIBS)
+PKG_CHECK_MODULES(DRI2, libdri2)
+AC_SUBST(DRI2_LDFLAGS)
+AC_SUBST(DRI2_CFLAGS)
+AC_SUBST(DRI2_LIBS)
+
+PKG_CHECK_MODULES(DRM, libdrm)
+AC_SUBST(DRM_CFLAGS)
+AC_SUBST(DRM_LIBS)
+
+PKG_CHECK_MODULES(TBM, libtbm)
+AC_SUBST(TBM_CFLAGS)
+AC_SUBST(TBM_LIBS)
+
+PKG_CHECK_MODULES(XFIXES, xfixes)
+AC_SUBST(XFIXES_LDFLAGS)
+AC_SUBST(XFIXES_CFLAGS)
+AC_SUBST(XFIXES_LIBS)
 AC_CONFIG_FILES(
 Makefile
 omx/Makefile

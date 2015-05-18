@@ -1418,10 +1418,10 @@ gst_omx_port_release_buffer (GstOMXPort * port, GstOMXBuffer * buf)
   buf->used = TRUE;
 
   if (port->port_def.eDir == OMX_DirInput) {
-    GST_LOG_OBJECT (comp->parent,"\n[SRI-D] Calling OMX_EmptyThisBuffer. BufHeader:[%p]\n",buf->omx_buf);
+    GST_LOG_OBJECT (comp->parent,"Calling OMX_EmptyThisBuffer. BufHeader:[%p]\n",buf->omx_buf);
     err = OMX_EmptyThisBuffer (comp->handle, buf->omx_buf);
   } else {
-      GST_ERROR_OBJECT (comp->parent,"\n[SRI-D] Calling OMX_FillThisBuffer. BufHeader:[%p]\n",buf->omx_buf);
+      GST_LOG_OBJECT (comp->parent,"Calling OMX_FillThisBuffer. BufHeader:[%p]\n",buf->omx_buf);
     err = OMX_FillThisBuffer (comp->handle, buf->omx_buf);
   }
   GST_DEBUG_OBJECT (comp->parent, "Released buffer %p to %s port %u: %s "
@@ -1705,7 +1705,7 @@ gst_omx_port_allocate_buffers_unlocked (GstOMXPort * port,
     g_assert (buf->omx_buf->pAppPrivate == buf);
 
     /* In the beginning all buffers are not owned by the component */
-    GST_DEBUG_OBJECT (comp->parent, "[SRI-D]: Pushing pending_buffers, port:[%d], Buffer:[%p]",
+    GST_DEBUG_OBJECT (comp->parent, "Pushing pending_buffers, port:[%d], Buffer:[%p]",
         port->index, buf);
     g_queue_push_tail (&port->pending_buffers, buf);
 
@@ -1742,7 +1742,7 @@ gst_omx_port_allocate_buffers (GstOMXPort * port)
 #ifdef USE_TBM
 /* NOTE: Uses comp->lock and comp->messages_lock */
 OMX_ERRORTYPE
-gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port)
+gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int eCompressionFormat)
 {
   OMX_ERRORTYPE err = OMX_ErrorNone;
   guint n = 0;
@@ -1755,15 +1755,16 @@ gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port)
 
   g_mutex_lock (&port->comp->lock);
 
-  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 1",__func__);
+  /* deallocate previous allocated buffers... */
+  if(port->buffers)
+      gst_omx_port_deallocate_buffers(port);
+
   n = port->port_def.nBufferCountActual;
 
   for(int i = 0; i < n; i++) {
-  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 2",__func__);
+
       ptr = (SCMN_IMGB*) malloc(sizeof(SCMN_IMGB));
-  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 3",__func__);
       memset(ptr,0,sizeof(SCMN_IMGB));
-  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 4",__func__);
       if(port->index == 0) {
 
           ptr->bo[0] = gst_omx_tbm_allocate_bo(bufMgr, port->port_def.nBufferSize);
@@ -1772,12 +1773,14 @@ gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port)
       }
       else { /* output port */
 
-          y_size = calc_plane(port->port_def.format.video.nFrameWidth,port->port_def.format.video.nFrameHeight);
+          y_size = gst_omx_calculate_y_size(eCompressionFormat,
+              port->port_def.format.video.nStride, port->port_def.format.video.nSliceHeight);
           ptr->bo[0] = gst_omx_tbm_allocate_bo(bufMgr, y_size);
           ptr->fd[0] = gst_omx_tbm_get_bo_fd(ptr->bo[0]);
           ptr->a[0] = gst_omx_tbm_get_bo_ptr(ptr->bo[0]);
 
-          uv_size = calc_plane(port->port_def.format.video.nFrameWidth,port->port_def.format.video.nFrameHeight >> 1);
+          uv_size = gst_omx_calculate_uv_size(eCompressionFormat,
+              port->port_def.format.video.nStride, port->port_def.format.video.nSliceHeight >> 1);
           ptr->bo[1] = gst_omx_tbm_allocate_bo(bufMgr, uv_size);
           ptr->fd[1] = gst_omx_tbm_get_bo_fd(ptr->bo[1]);
           ptr->a[1] = gst_omx_tbm_get_bo_ptr(ptr->bo[1]);
@@ -1786,11 +1789,12 @@ gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port)
           ptr->uv_size = uv_size;
           ptr->buf_share_method = BUF_SHARE_METHOD_FD;
 
-//          GST_ERROR_OBJECT(self, "\n[SRI-D] Buffer count: [%d] Video width:[%d],Video Height:[%d]",port->port_def.nBufferCountActual,
       }
-  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 5",__func__);
       buffers = g_list_append(buffers,(gpointer)ptr);
-  //GST_ERROR_OBJECT (port->comp->parent, "\n[SRI-D]: %s : 6",__func__);
+  }
+  if(port->index == 0) {
+     GST_DEBUG_OBJECT(port->comp->parent,"Y Length:[%d], UV Length:[%d], FrameWidth:[%d],Frame Height:[%d]",
+     ptr->y_size,ptr->uv_size,port->port_def.format.video.nStride, port->port_def.format.video.nSliceHeight);
   }
 
   n = g_list_length ((GList *) buffers);
@@ -1885,6 +1889,8 @@ gst_omx_port_deallocate_buffers_unlocked (GstOMXPort * port)
         gst_omx_tbm_deallocate_bo(buf->scmn_buffer->bo[0]);
         if(port->index == 1) /* output port */
             gst_omx_tbm_deallocate_bo(buf->scmn_buffer->bo[1]);
+        free(buf->scmn_buffer);
+        buf->scmn_buffer = NULL;
     }
 #endif
     /* omx_buf can be NULL if allocation failed earlier
@@ -2677,6 +2683,43 @@ calc_uvplane(int width, int height)
     mbY = ALIGN(height + 4, S5P_FIMV_NV12MT_VALIGN);
 
     return ALIGN(mbX * mbY, S5P_FIMV_DEC_BUF_ALIGN);
+}
+
+int
+gst_omx_calculate_y_size(int compressionFormat, int width, int height)
+{
+    int size = 0;
+    switch(compressionFormat)
+    {
+    case OMX_VIDEO_CodingMPEG2:
+        size = calc_yplane(width,height);
+        size = size << 1; /* MFC FIX. double the calculated buffer size */
+        GST_LOG("calculating Y size of mpeg2: height:[%d], width:[%d], size:[%d]",height,width,size);
+        break;
+    case OMX_VIDEO_CodingAVC: /* FALL THROUGH */
+        default:
+        size = calc_plane(width,height);
+        GST_ERROR("calculating Y size of DEFAULT: height:[%d], width:[%d], size:[%d]",height,width,size);
+    }
+    return size;
+}
+
+int
+gst_omx_calculate_uv_size(int compressionFormat, int width, int height)
+{
+    int size = 0;
+    switch(compressionFormat)
+    {
+    case OMX_VIDEO_CodingMPEG2:
+        size = calc_uvplane(width,height);
+        size = size << 1; /* MFC FIX. double the calculated buffer size */
+        break;
+    case OMX_VIDEO_CodingAVC: /* FALL THROUGH */
+        default:
+        size = calc_plane(width,height);
+        GST_LOG("calculating UV size of DEFAULT: height:[%d], width:[%d], size:[%d]",height,width,size);
+    }
+    return size;
 }
 
 tbm_bo

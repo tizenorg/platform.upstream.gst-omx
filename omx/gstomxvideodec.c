@@ -1291,10 +1291,9 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
       was_enabled = FALSE;
     }
 #ifdef USE_TBM
-    //GST_ERROR_OBJECT (self, "1. USE_TBM");
-    err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port);
+    err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port,
+        self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
-    //GST_ERROR_OBJECT (self, "1. NOT USE_TBM");
     err = gst_omx_port_allocate_buffers (port);
 #endif
     if (err != OMX_ErrorNone && min > port->port_def.nBufferCountMin) {
@@ -1321,10 +1320,9 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
         }
       }
 #ifdef USE_TBM
-      //GST_ERROR_OBJECT (self, "2. USE_TBM");
-      err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port);
+      err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port,
+          self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
-      //GST_ERROR_OBJECT (self, "2. NOT USE_TBM");
       err = gst_omx_port_allocate_buffers (port);
 #endif
       /* Can't provide buffers downstream in this case */
@@ -2195,15 +2193,12 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   GST_DEBUG_OBJECT (self, "Enabling component");
 
   if (needs_disable) {
-   // printf("\n[SRI-D] needs_disable");
     if (gst_omx_port_set_enabled (self->dec_in_port, TRUE) != OMX_ErrorNone)
       return FALSE;
 #ifdef USE_TBM
-    //GST_ERROR_OBJECT (self, "\n3. USE_TBM");
-    if(gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,self->dec_in_port) != OMX_ErrorNone)
+    if(gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,self->dec_in_port, 0) != OMX_ErrorNone)
      return FALSE;
 #else
-    //GST_ERROR_OBJECT (self, "\n3. NOT USE_TBM");
     if (gst_omx_port_allocate_buffers (self->dec_in_port) != OMX_ErrorNone)
       return FALSE;
 #endif
@@ -2222,23 +2217,19 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
       return FALSE;
 
     /* Need to allocate buffers to reach Idle state */
-   //printf("\n[SRI-D] outside needs_disable\n");
 #ifdef USE_TBM
-    //GST_ERROR_OBJECT (self, "\n4. USE_TBM");
-    if(gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,self->dec_in_port) != OMX_ErrorNone)
+    if(gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,self->dec_in_port,0) != OMX_ErrorNone)
      return FALSE;
 #else
-    //GST_ERROR_OBJECT (self, "\n4. NOT USE_TBM");
     if (gst_omx_port_allocate_buffers (self->dec_in_port) != OMX_ErrorNone)
       return FALSE;
 #endif
 
 #ifdef USE_TBM
-    //GST_ERROR_OBJECT (self, "\n5. USE_TBM");
-    if(gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,self->dec_out_port) != OMX_ErrorNone)
+    if(gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,self->dec_out_port,
+        self->dec_in_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
      return FALSE;
 #else
-    //GST_ERROR_OBJECT (self, "\n5. NOT USE_TBM");
     if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
       return FALSE
 #endif
@@ -2252,11 +2243,9 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
             1 * GST_SECOND) != OMX_ErrorNone)
       return FALSE;
 #endif
-    //GST_ERROR_OBJECT (self, "\n7. GET COMPONENT STATE\n");
     if (gst_omx_component_get_state (self->dec,
             GST_CLOCK_TIME_NONE) != OMX_StateIdle)
       return FALSE;
-    //GST_ERROR_OBJECT (self, "\n8. SET COMPONENT STATE TO EXECUTING\n");
     if (gst_omx_component_set_state (self->dec,
             OMX_StateExecuting) != OMX_ErrorNone)
       return FALSE;
@@ -2267,9 +2256,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   }
 
   /* Unset flushing to allow ports to accept data again */
-    //GST_ERROR_OBJECT (self, "\n10. FLUSHING INPUT PORT\n");
   gst_omx_port_set_flushing (self->dec_in_port, 5 * GST_SECOND, FALSE);
-    //GST_ERROR_OBJECT (self, "\n11. FLUSHING OUTPUT PORT\n");
   gst_omx_port_set_flushing (self->dec_out_port, 5 * GST_SECOND, FALSE);
 
   if (gst_omx_component_get_last_error (self->dec) != OMX_ErrorNone) {
@@ -2279,7 +2266,6 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     return FALSE;
   }
 
-    //GST_ERROR_OBJECT (self, "\n12. STARTING TASK AGAIN\n");
   /* Start the srcpad loop again */
   GST_DEBUG_OBJECT (self, "Starting task again");
 
@@ -2426,7 +2412,8 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
         goto reconfigure_error;
       }
 #ifdef USE_TBM
-      err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port);
+      err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port,
+          self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
       err = gst_omx_port_allocate_buffers (port);
 #endif
@@ -2480,7 +2467,6 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
       buf->omx_buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
       buf->omx_buf->nFilledLen = gst_buffer_get_size (codec_data);;
 #ifdef USE_TBM
-      //GST_ERROR_OBJECT(self,"\n[SRI-D] extract from codec_data\n");
       gst_buffer_extract (codec_data, 0,
           buf->scmn_buffer->a[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
@@ -2489,7 +2475,6 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
           buf->omx_buf->pBuffer + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
 #endif
-      //GST_ERROR_OBJECT(self,"\n[SRI-D] extract from codec_data SUCCESS\n");
       if (GST_CLOCK_TIME_IS_VALID (timestamp))
         buf->omx_buf->nTimeStamp =
             gst_util_uint64_scale (timestamp, OMX_TICKS_PER_SECOND, GST_SECOND);
@@ -2518,7 +2503,6 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
     /*GST_ERROR_OBJECT (self, "[SRI-D] frame->input_buffer:[%p], offset:[%d], buf->scmn_buffer->a[0]:[%p],offset:[%d], buf->omx_buf->nFilledLen:[%d]",
     frame->input_buffer, offset, buf->scmn_buffer->a[0], buf->omx_buf->nOffset, buf->omx_buf->nFilledLen);*/
 #ifdef USE_TBM
-      //GST_ERROR_OBJECT(self,"\n[SRI-D] extract from frame->input_buffer\n");
       gst_buffer_extract (frame->input_buffer, offset,
           buf->scmn_buffer->a[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
@@ -2527,7 +2511,6 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
         buf->omx_buf->pBuffer + buf->omx_buf->nOffset,
         buf->omx_buf->nFilledLen);
 #endif
-      //GST_ERROR_OBJECT(self,"\n[SRI-D] extract from frame->input_buffer SUCCESS\n");
     if (timestamp != GST_CLOCK_TIME_NONE) {
       buf->omx_buf->nTimeStamp =
           gst_util_uint64_scale (timestamp, OMX_TICKS_PER_SECOND, GST_SECOND);
