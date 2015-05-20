@@ -2500,8 +2500,6 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
         MIN (size - offset, buf->omx_buf->nAllocLen - buf->omx_buf->nOffset);
     GST_DEBUG_OBJECT (self, "nFilledLen %d, %p", buf->omx_buf->nFilledLen, buf->omx_buf->pBuffer);
 
-    /*GST_ERROR_OBJECT (self, "[SRI-D] frame->input_buffer:[%p], offset:[%d], buf->scmn_buffer->a[0]:[%p],offset:[%d], buf->omx_buf->nFilledLen:[%d]",
-    frame->input_buffer, offset, buf->scmn_buffer->a[0], buf->omx_buf->nOffset, buf->omx_buf->nFilledLen);*/
 #ifdef USE_TBM
       gst_buffer_extract (frame->input_buffer, offset,
           buf->scmn_buffer->a[0] + buf->omx_buf->nOffset,

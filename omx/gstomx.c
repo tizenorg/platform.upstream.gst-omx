@@ -1668,13 +1668,7 @@ gst_omx_port_allocate_buffers_unlocked (GstOMXPort * port,
     g_ptr_array_add (port->buffers, buf);
 
     if (buffers) {
-#ifdef USE_TBM
-        if(port->index == 0)
-            err =
-            OMX_UseBuffer (comp->handle, &buf->omx_buf, port->index, buf,
-            port->port_def.nBufferSize, buf->scmn_buffer->a[0]);
-        else
-#endif
+
       err =
           OMX_UseBuffer (comp->handle, &buf->omx_buf, port->index, buf,
           port->port_def.nBufferSize, l->data);
@@ -1795,6 +1789,47 @@ gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int
   if(port->index == 0) {
      GST_DEBUG_OBJECT(port->comp->parent,"Y Length:[%d], UV Length:[%d], FrameWidth:[%d],Frame Height:[%d]",
      ptr->y_size,ptr->uv_size,port->port_def.format.video.nStride, port->port_def.format.video.nSliceHeight);
+  }
+
+  n = g_list_length ((GList *) buffers);
+  err = gst_omx_port_allocate_buffers_unlocked (port, buffers, NULL, n);
+  g_mutex_unlock (&port->comp->lock);
+
+  return err;
+}
+
+/* NOTE: Uses comp->lock and comp->messages_lock */
+OMX_ERRORTYPE
+gst_omx_port_tbm_allocate_enc_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int eCompressionFormat)
+{
+  OMX_ERRORTYPE err = OMX_ErrorNone;
+  guint n = 0;
+  GList *buffers = NULL;
+  SCMN_IMGB *ptr = NULL;
+  int y_size = 0;
+  int uv_size = 0;
+
+  g_return_val_if_fail (port != NULL, OMX_ErrorUndefined);
+
+  g_mutex_lock (&port->comp->lock);
+
+  /*deallocate previous allocated buffers...*/
+  if(port->buffers)
+      gst_omx_port_deallocate_buffers(port);
+  n = port->port_def.nBufferCountActual;
+
+  for(int i = 0; i < n; i++) {
+      ptr = (SCMN_IMGB*) malloc(sizeof(SCMN_IMGB));
+      memset(ptr,0,sizeof(SCMN_IMGB));
+      if(port->index == 1) {
+
+          ptr->bo[0] = gst_omx_tbm_allocate_bo(bufMgr, port->port_def.nBufferSize);
+          ptr->fd[0] = gst_omx_tbm_get_bo_fd(ptr->bo[0]);
+          ptr->a[0] = gst_omx_tbm_get_bo_ptr(ptr->bo[0]);
+      }
+#if 0
+#endif
+      buffers = g_list_append(buffers,(gpointer)ptr);
   }
 
   n = g_list_length ((GList *) buffers);
@@ -2691,6 +2726,10 @@ gst_omx_calculate_y_size(int compressionFormat, int width, int height)
     int size = 0;
     switch(compressionFormat)
     {
+    case OMX_VIDEO_CodingH263: /* FALL THROUGH */
+    case OMX_VIDEO_CodingMPEG4:
+        size = calc_yplane(width,height);
+        break;
     case OMX_VIDEO_CodingMPEG2:
         size = calc_yplane(width,height);
         size = size << 1; /* MFC FIX. double the calculated buffer size */
@@ -2710,6 +2749,10 @@ gst_omx_calculate_uv_size(int compressionFormat, int width, int height)
     int size = 0;
     switch(compressionFormat)
     {
+    case OMX_VIDEO_CodingH263: /* FALL THROUGH */
+    case OMX_VIDEO_CodingMPEG4:
+        size = calc_uvplane(width,height);
+        break;
     case OMX_VIDEO_CodingMPEG2:
         size = calc_uvplane(width,height);
         size = size << 1; /* MFC FIX. double the calculated buffer size */
