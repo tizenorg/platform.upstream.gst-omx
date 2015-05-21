@@ -203,9 +203,9 @@ struct _TBMOutputBuffer
     GList *buffers;
 };
 
-typedef struct EnableGemBuffersParams EnableGemBuffersParams;
+typedef struct _EnableGemBuffersParams EnableGemBuffersParams;
 
-struct EnableGemBuffersParams
+struct _EnableGemBuffersParams
 {
   OMX_U32 nSize;
   OMX_VERSIONTYPE nVersion;

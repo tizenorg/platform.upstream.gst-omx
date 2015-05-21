@@ -10,13 +10,7 @@ Source1001:     gst-omx.manifest
 BuildRequires:  which
 BuildRequires:  pkgconfig(gstreamer-1.0)
 BuildRequires:  pkgconfig(gstreamer-plugins-base-1.0)
-
-BuildRequires: pkgconfig(x11)
-BuildRequires: pkgconfig(dri2proto)
-BuildRequires: pkgconfig(libdri2)
-BuildRequires: pkgconfig(libdrm)
 BuildRequires: pkgconfig(libtbm)
-BuildRequires: pkgconfig(xfixes)
 
 %description
 gst-openmax is a GStreamer plug-in that allows communication with OpenMAX IL components.
