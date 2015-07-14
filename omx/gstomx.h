@@ -26,6 +26,7 @@
 #include <gmodule.h>
 #include <gst/gst.h>
 #include <string.h>
+#include <mm_types.h>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -198,7 +199,11 @@ struct _TBMInputBuffer
 
 struct _TBMOutputBuffer
 {
+#ifdef USE_MM_VIDEO_BUFFER
+    MMVideoBuffer *tbmBuffer[MAX_OUTPUT_BUFFER];
+#else
     SCMN_IMGB *tbmBuffer[MAX_OUTPUT_BUFFER];
+#endif
     OMX_U32 allocatedCount;
     GList *buffers;
 };
@@ -400,8 +405,13 @@ struct _GstOMXBuffer {
   gboolean eglimage;
 
 #ifdef USE_TBM
+#ifdef USE_MM_VIDEO_BUFFER
+  /* MMVideoBuffer array to use TBM buffers */
+   MMVideoBuffer *scmn_buffer;
+#else
   /* SCMN_IMGB array to use TBM buffers */
   SCMN_IMGB *scmn_buffer;
+#endif
 #endif
 };
 
@@ -494,6 +504,23 @@ void              gst_omx_set_default_role (GstOMXClassData *class_data, const g
 #define S5P_FIMV_NV12MT_SALIGN                  8192
 
 #define ALIGN(x, a)       (((x) + (a) - 1) & ~((a) - 1))
+
+/* Buffer alignment defines */
+#define SZ_1M                                   0x00100000
+#define S5P_FIMV_D_ALIGN_PLANE_SIZE             64
+
+#define S5P_FIMV_MAX_FRAME_SIZE                 (2 * SZ_1M)
+#define S5P_FIMV_NUM_PIXELS_IN_MB_ROW           16
+#define S5P_FIMV_NUM_PIXELS_IN_MB_COL           16
+
+/* Macro */
+#define ALIGN_TO_4KB(x)   ((((x) + (1 << 12) - 1) >> 12) << 12)
+#define DIV_ROUND_UP(n,d) (((n) + (d) - 1) / (d))
+#define CHOOSE_MAX_SIZE(a,b) ((a) > (b) ? (a) : (b))
+
+int new_calc_plane(int width, int height);
+int new_calc_yplane(int width, int height);
+int new_calc_uvplane(int width, int height);
 
 int calc_plane(int width, int height);
 int calc_yplane(int width, int height);

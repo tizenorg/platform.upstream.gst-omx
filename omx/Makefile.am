@@ -52,12 +52,16 @@ endif
 
 libgstomx_la_CFLAGS = \
 	-DGST_USE_UNSTABLE_API=1 \
+	$(CFLAGS) \
 	$(OMX_INCLUDEPATH) \
 	$(GST_PLUGINS_BASE_CFLAGS) \
 	$(GST_BASE_CFLAGS) \
 	$(GST_CFLAGS) \
-	$(TBM_CFLAGS)
-#	$(DRM_SLP_CFLAGS)
+	$(TBM_CFLAGS) \
+	$(MM_COMMON_CFLAGS)
+
+libgstomx_la_CFLAGS += -DUSE_MM_VIDEO_BUFFER
+
 libgstomx_la_LIBADD = \
 	$(GST_PLUGINS_BASE_LIBS) \
 	-lgstaudio-@GST_API_VERSION@ \
@@ -65,12 +69,13 @@ libgstomx_la_LIBADD = \
 	-lgstvideo-@GST_API_VERSION@ \
 	$(GST_BASE_LIBS) \
 	$(GST_LIBS) \
-	$(TBM_LIBS)
-#	$(DRM_SLP_LIBS)
+	$(TBM_LIBS) \
+	$(MM_COMMON_LIBS)
+
 libgstomx_la_LDFLAGS = \
 	$(GST_PLUGIN_LDFLAGS) \
-	$(TBM_LDFLAGS)
-#	$(DRM_SLP_LDFLAGS)
+	$(TBM_LDFLAGS) \
+	$(MM_COMMON_LDFLAGS)
 
 
 EXTRA_DIST = \

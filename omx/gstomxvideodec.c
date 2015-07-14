@@ -430,6 +430,7 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
           stride[2] = pool->port->port_def.format.video.nStride / 2;
           break;
         case GST_VIDEO_FORMAT_NV12:
+        case GST_VIDEO_FORMAT_SN12:
         case GST_VIDEO_FORMAT_ST12:
           offset[0] = 0;
           stride[0] = pool->port->port_def.format.video.nStride;
@@ -1150,11 +1151,25 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
       ret = TRUE;
       break;
     }
+    case GST_VIDEO_FORMAT_SN12:
     case GST_VIDEO_FORMAT_ST12:{
-        SCMN_IMGB *out_imgb = NULL;
         GstMemory *mem_imgb = NULL;
         void *imgb_data = NULL;
-
+#ifdef USE_MM_VIDEO_BUFFER
+        MMVideoBuffer *out_imgb = NULL;
+        out_imgb = (MMVideoBuffer*)(inbuf->omx_buf->pBuffer);
+        out_imgb->type = MM_VIDEO_BUFFER_TYPE_TBM_BO;
+        if (out_imgb->type == MM_VIDEO_BUFFER_TYPE_TBM_BO) {
+          GST_LOG_OBJECT (self, "dec output buf: fd[0]:%d  fd[1]:%d fd[2]:%d  w[0]:%d h[0]:%d  buf_share_method:%d",
+                  out_imgb->handle.dmabuf_fd[0], out_imgb->handle.dmabuf_fd[1], out_imgb->handle.dmabuf_fd[2],
+                  out_imgb->width[0], out_imgb->height[0], out_imgb->type);
+        } else if (out_imgb->type == MM_VIDEO_BUFFER_TYPE_PHYSICAL_ADDRESS) {
+          GST_LOG_OBJECT (self, "dec output uses hw addr");
+        } else {
+          GST_WARNING_OBJECT (self, "dec output buf has TBM_BO buf_share_method");
+        }
+#else
+        SCMN_IMGB *out_imgb = NULL;
         out_imgb = (SCMN_IMGB*)(inbuf->omx_buf->pBuffer);
         if (out_imgb->buf_share_method == BUF_SHARE_METHOD_FD) {
           GST_LOG_OBJECT (self, "dec output buf: fd[0]:%d  fd[1]:%d fd[2]:%d  w[0]:%d h[0]:%d  buf_share_method:%d",
@@ -1164,6 +1179,7 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
         } else {
           GST_WARNING_OBJECT (self, "dec output buf has wrong buf_share_method");
         }
+#endif
         if (gst_buffer_n_memory(outbuf) < 2) {
             imgb_data = g_malloc0(sizeof(*out_imgb));
             mem_imgb = gst_memory_new_wrapped(0, imgb_data, sizeof(*out_imgb), 0, sizeof(*out_imgb), imgb_data, g_free);
@@ -1175,7 +1191,11 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
             imgb_data = imgb_info.data;
             gst_memory_unmap(mem_imgb, &imgb_info);
         }
+#ifdef USE_MM_VIDEO_BUFFER
+        memcpy(imgb_data, out_imgb, sizeof(MMVideoBuffer));
+#else
         memcpy(imgb_data, out_imgb, sizeof(SCMN_IMGB));
+#endif
         ret = TRUE;
         break;
     }
@@ -1207,7 +1227,7 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
 {
   OMX_ERRORTYPE err = OMX_ErrorNone;
   GstOMXPort *port;
-  GstBufferPool *pool;
+  GstBufferPool *pool = NULL;
   GstStructure *config;
   gboolean eglimage = FALSE, add_videometa = FALSE;
   GstCaps *caps = NULL;
@@ -1221,7 +1241,7 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
   /* FIXME: Enable this once there's a way to request downstream to
    * release all our buffers, e.g.
    * http://cgit.freedesktop.org/~wtay/gstreamer/log/?h=release-pool */
-  if (FALSE && pool) {
+  if (pool) {
     GstAllocator *allocator;
 
     config = gst_buffer_pool_get_config (pool);
@@ -1255,9 +1275,12 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
     GST_DEBUG_OBJECT (self, "No pool available, not negotiated yet");
   }
 
-  if (caps)
+  min = max = port->port_def.nBufferCountMin;
+  if (caps){
+    GST_LOG_OBJECT(self,"gst-omx: Creating our own outport buffer pool. min:[%d], max:[%d]",min,max);
     self->out_port_pool =
         gst_omx_buffer_pool_new (GST_ELEMENT_CAST (self), self->dec, port);
+  }
 
   /* TODO: Implement EGLImage handling and usage of other downstream buffers */
 
@@ -1326,7 +1349,7 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
       err = gst_omx_port_allocate_buffers (port);
 #endif
       /* Can't provide buffers downstream in this case */
-      gst_caps_replace (&caps, NULL);
+      //gst_caps_replace (&caps, NULL);
     }
 
     if (err != OMX_ErrorNone) {
@@ -1479,9 +1502,15 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
         format = GST_VIDEO_FORMAT_NV12;
         break;
       case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
-        GST_ERROR_OBJECT (self, "Output is ST12 (%d)",
+#ifdef USE_MM_VIDEO_BUFFER
+        GST_LOG_OBJECT (self, "Output is SN12 (%d)",
+            port_def.format.video.eColorFormat);
+        format = GST_VIDEO_FORMAT_SN12;
+#else
+        GST_LOG_OBJECT (self, "Output is ST12 (%d)",
             port_def.format.video.eColorFormat);
         format = GST_VIDEO_FORMAT_ST12;
+#endif
         break;
       default:
         GST_ERROR_OBJECT (self, "Unsupported color format: %d",
@@ -1623,6 +1652,14 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
           gst_buffer_pool_acquire_buffer (self->out_port_pool,
           &frame->output_buffer, &params);
       if (flow_ret != GST_FLOW_OK) {
+        flow_ret =
+            gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
+        frame = NULL;
+        gst_omx_port_release_buffer (port, buf);
+        goto invalid_buffer;
+      }
+      if(!gst_omx_video_dec_fill_buffer (self, buf, frame->output_buffer)) {
+        gst_buffer_replace (&frame->output_buffer, NULL);
         flow_ret =
             gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
         frame = NULL;
@@ -1913,11 +1950,19 @@ gst_omx_video_dec_get_supported_colorformats (GstOMXVideoDec * self)
           break;
         case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
             m = g_slice_new (VideoNegotiationMap);
+#ifdef USE_MM_VIDEO_BUFFER
+            m->format = GST_VIDEO_FORMAT_SN12;
+            m->type = param.eColorFormat;
+            negotiation_map = g_list_append (negotiation_map, m);
+            GST_DEBUG_OBJECT (self, "Component supports SN12 (%d) at index %d",
+                param.eColorFormat, param.nIndex);
+#else
             m->format = GST_VIDEO_FORMAT_ST12;
             m->type = param.eColorFormat;
             negotiation_map = g_list_append (negotiation_map, m);
             GST_DEBUG_OBJECT (self, "Component supports ST12 (%d) at index %d",
                 param.eColorFormat, param.nIndex);
+#endif
             break;
 
         default:
@@ -1946,7 +1991,9 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
   const gchar *format_str;
   gchar *format_tmp;
   int i;
+#ifdef USE_TBM
   EnableGemBuffersParams gemBuffers;
+#endif
 
   GST_DEBUG_OBJECT (self, "Trying to negotiate a video format with downstream");
 
@@ -2452,6 +2499,10 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
       goto flow_error;
     }
 
+    /* clear codec_data. MFC is not able to handle this in case of mpeg4. */
+    if (self->codec_data)
+      gst_buffer_replace (&self->codec_data, NULL);
+
     if (self->codec_data) {
       GST_DEBUG_OBJECT (self, "Passing codec data to the component");
 
@@ -2467,9 +2518,15 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
       buf->omx_buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
       buf->omx_buf->nFilledLen = gst_buffer_get_size (codec_data);;
 #ifdef USE_TBM
+#ifdef USE_MM_VIDEO_BUFFER
+      gst_buffer_extract (codec_data, 0,
+          buf->scmn_buffer->handle.paddr[0] + buf->omx_buf->nOffset,
+          buf->omx_buf->nFilledLen);
+#else
       gst_buffer_extract (codec_data, 0,
           buf->scmn_buffer->a[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
+#endif
 #else
       gst_buffer_extract (codec_data, 0,
           buf->omx_buf->pBuffer + buf->omx_buf->nOffset,
@@ -2501,9 +2558,15 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
     GST_DEBUG_OBJECT (self, "nFilledLen %d, %p", buf->omx_buf->nFilledLen, buf->omx_buf->pBuffer);
 
 #ifdef USE_TBM
+#ifdef USE_MM_VIDEO_BUFFER
+     gst_buffer_extract (frame->input_buffer, offset,
+          buf->scmn_buffer->handle.paddr[0] + buf->omx_buf->nOffset,
+          buf->omx_buf->nFilledLen);
+#else
       gst_buffer_extract (frame->input_buffer, offset,
           buf->scmn_buffer->a[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
+#endif
 #else
     gst_buffer_extract (frame->input_buffer, offset,
         buf->omx_buf->pBuffer + buf->omx_buf->nOffset,

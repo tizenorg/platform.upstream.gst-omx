@@ -1244,12 +1244,13 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
           ((port_def.format.video.nFrameHeight + 1) / 2));
       break;
 
-    case OMX_EXT_COLOR_FormatNV12LPhysicalAddress:
-        port_def.nBufferSize = sizeof(SCMN_IMGB);
-        break;
-
+    case OMX_EXT_COLOR_FormatNV12LPhysicalAddress: /* FALL THROUGH */
     case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
+#ifdef USE_MM_VIDEO_BUFFER
+        port_def.nBufferSize = sizeof(MMVideoBuffer);
+#else
         port_def.nBufferSize = sizeof(SCMN_IMGB);
+#endif
         break;
 
     default:
@@ -1554,9 +1555,32 @@ gst_omx_video_enc_fill_buffer (GstOMXVideoEnc * self, GstBuffer * inbuf,
     }
     case GST_VIDEO_FORMAT_ST12:
     case GST_VIDEO_FORMAT_SN12:{
-        SCMN_IMGB *ext_buf = NULL;
         GstMemory* ext_memory = gst_buffer_peek_memory(inbuf, 1);
         GstMapInfo ext_info =  GST_MAP_INFO_INIT;
+#ifdef USE_MM_VIDEO_BUFFER
+        MMVideoBuffer *ext_buf = NULL;
+       if (!ext_memory) {
+             GST_WARNING_OBJECT (self, "null MMVideoBuffer pointer  in hw color format. skip this.");
+            goto done;
+        }
+
+        gst_memory_map(ext_memory, &ext_info, GST_MAP_READ);
+        ext_buf = (MMVideoBuffer*)ext_info.data;
+        gst_memory_unmap(ext_memory, &ext_info);
+        if (ext_buf != NULL && ext_buf->type == 1) {
+          GST_LOG_OBJECT (self, "enc. fd[0]:%d  fd[1]:%d  fd[2]:%d  w[0]:%d  h[0]:%d   buf_share_method:%d",
+              ext_buf->handle.dmabuf_fd[0], ext_buf->handle.dmabuf_fd[1], ext_buf->handle.dmabuf_fd[2], ext_buf->width[0], ext_buf->height[0], ext_buf->type);
+        } else if (ext_buf != NULL && ext_buf->type == 0) {
+          GST_LOG_OBJECT (self, "enc input buf uses hw addr");
+        } else {
+          GST_WARNING_OBJECT (self, "enc input buf has wrong buf_share_method");
+        }
+
+        outbuf->omx_buf->nAllocLen = sizeof(MMVideoBuffer);
+        outbuf->omx_buf->nFilledLen = sizeof(MMVideoBuffer);
+        memcpy (outbuf->omx_buf->pBuffer, ext_buf, sizeof(MMVideoBuffer));
+#else
+        SCMN_IMGB *ext_buf = NULL;
         if (!ext_memory) {
             GST_WARNING_OBJECT (self, "null SCMN_IMGB in hw color format. skip this.");
             goto done;
@@ -1577,6 +1601,7 @@ gst_omx_video_enc_fill_buffer (GstOMXVideoEnc * self, GstBuffer * inbuf,
         outbuf->omx_buf->nAllocLen = sizeof(SCMN_IMGB);
         outbuf->omx_buf->nFilledLen = sizeof(SCMN_IMGB);
         memcpy (outbuf->omx_buf->pBuffer, ext_buf, sizeof(SCMN_IMGB));
+#endif
         ret = TRUE;
         break;
     }
