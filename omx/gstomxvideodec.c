@@ -269,7 +269,8 @@ gst_omx_buffer_pool_stop (GstBufferPool * bpool)
   GstOMXBufferPool *pool = GST_OMX_BUFFER_POOL (bpool);
 
   /* Remove any buffers that are there */
-  g_ptr_array_set_size (pool->buffers, 0);
+  if(pool->buffers)
+      g_ptr_array_set_size (pool->buffers, 0);
 
   if (pool->caps)
     gst_caps_unref (pool->caps);
