@@ -28,10 +28,16 @@
 
 #include "gstomxvideoenc.h"
 
+//#define CODEC_ENC_INPUT_DUMP
 GST_DEBUG_CATEGORY_STATIC (gst_omx_video_enc_debug_category);
 #define GST_CAT_DEFAULT gst_omx_video_enc_debug_category
 
 #define GST_TYPE_OMX_VIDEO_ENC_CONTROL_RATE (gst_omx_video_enc_control_rate_get_type ())
+
+#ifdef CODEC_ENC_INPUT_DUMP
+#include <stdio.h>
+#endif
+
 static GType
 gst_omx_video_enc_control_rate_get_type (void)
 {
@@ -216,6 +222,36 @@ gst_omx_video_enc_init (GstOMXVideoEnc * self)
   self->drm_fd = -1;
 #endif
 }
+
+#ifdef CODEC_ENC_INPUT_DUMP
+static inline void
+gst_omx_video_enc_input_dump (MMVideoBuffer *inbuf)
+{
+  char *temp = (char *)inbuf->data[0];
+  int i = 0;
+  char filename[100]={0};
+  FILE *fp = NULL;
+
+  GST_WARNING ("codec enc input dump start. w = %d, h = %d", inbuf->width[0], inbuf->height[0]);
+
+  sprintf(filename, "/opt/usr/media/Videos/enc_input_dump_%d_%d.yuv", inbuf->width[0], inbuf->height[0]);
+  fp = fopen(filename, "ab");
+
+  for (i = 0; i < inbuf->height[0]; i++) {
+      fwrite(temp, inbuf->width[0], 1, fp);
+      temp += inbuf->stride_width[0];
+  }
+
+  temp = (char*)inbuf->data[0] + inbuf->stride_width[0] * inbuf->stride_height[0];
+
+  for(i = 0; i < inbuf->height[1] ; i++) {
+      fwrite(temp, inbuf->width[1], 1, fp);
+      temp += inbuf->stride_width[1];
+  }
+  GST_WARNING ("codec encoder input dumped!!");
+  fclose(fp);
+}
+#endif
 
 static gboolean
 gst_omx_video_enc_open (GstVideoEncoder * encoder)
@@ -1598,6 +1634,9 @@ gst_omx_video_enc_fill_buffer (GstOMXVideoEnc * self, GstBuffer * inbuf,
           GST_WARNING_OBJECT (self, "enc input buf has wrong buf_share_method");
         }
 
+#ifdef CODEC_ENC_INPUT_DUMP
+        gst_omx_video_enc_input_dump(ext_buf);
+#endif
         outbuf->omx_buf->nAllocLen = sizeof(SCMN_IMGB);
         outbuf->omx_buf->nFilledLen = sizeof(SCMN_IMGB);
         memcpy (outbuf->omx_buf->pBuffer, ext_buf, sizeof(SCMN_IMGB));

@@ -1783,8 +1783,8 @@ gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int
               port->port_def.format.video.nStride, port->port_def.format.video.nSliceHeight);
           ptr->handle.bo[0] = gst_omx_tbm_allocate_bo(bufMgr, y_size);
           ptr->handle.dmabuf_fd[0] = gst_omx_tbm_get_bo_fd(ptr->handle.bo[0]);
-          ptr->handle.paddr[0] = gst_omx_tbm_get_bo_ptr(ptr->handle.bo[0]);
-          ptr->data[0] = ptr->handle.paddr[0];
+          ptr->data[0] = gst_omx_tbm_get_bo_ptr(ptr->handle.bo[0]);
+          ptr->handle.paddr[0] = ptr->data[0];
           ptr->size[0] = y_size;
 
         GST_LOG("%s  size:[%d]",__FUNCTION__, y_size);
@@ -1797,7 +1797,7 @@ gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int
           ptr->handle.paddr[1] = ptr->data[1];
           ptr->size[1] = uv_size;
           ptr->type = MM_VIDEO_BUFFER_TYPE_DMABUF_FD;
-          GST_ERROR(" fd[0]:%d, bo[0]:%p fd[1]:%d, bo[1]:%p",ptr->handle.dmabuf_fd[0],ptr->handle.bo[0],ptr->handle.dmabuf_fd[1],ptr->handle.bo[1]);
+          GST_ERROR(" fd[0]:%d, bo[0]:%p fd[1]:%d, bo[1]:%p, a[0]:%p",ptr->handle.dmabuf_fd[0],ptr->handle.bo[0],ptr->handle.dmabuf_fd[1],ptr->handle.bo[1], ptr->data[0]);
           ptr->plane_num = 2;
 
       }
@@ -2888,6 +2888,7 @@ gst_omx_tbm_get_bo_ptr(tbm_bo bo)
 {
   tbm_bo_handle TBMBoHandle;
   TBMBoHandle = tbm_bo_map(bo, TBM_DEVICE_CPU,TBM_OPTION_WRITE);
+  //TBMBoHandle = tbm_bo_get_handle (bo, TBM_DEVICE_CPU);
   if(TBMBoHandle.ptr != NULL)
     return TBMBoHandle.ptr;
   return NULL;

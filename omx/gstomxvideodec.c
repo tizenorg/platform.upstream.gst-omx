@@ -24,10 +24,14 @@
 #include "config.h"
 #endif
 
+//#define CODEC_DEC_OUTPUT_DUMP
 #include <gst/gst.h>
 #include <gst/video/gstvideometa.h>
 #include <gst/video/gstvideopool.h>
 #include <string.h>
+#if defined(CODEC_DEC_OUTPUT_DUMP)
+#include <stdio.h> /* for dump */
+#endif
 
 #include "gstomxvideodec.h"
 
@@ -1025,6 +1029,38 @@ _find_nearest_frame (GstOMXVideoDec * self, GstOMXBuffer * buf)
   return best;
 }
 
+#ifdef CODEC_DEC_OUTPUT_DUMP /* for decoder output dump */
+static inline void
+decoder_output_dump(GstOMXVideoDec *self, MMVideoBuffer *outbuf)
+{
+  char *temp = (char *)outbuf->data[0];
+  int i = 0;
+  char filename[100]={0};
+  FILE *fp = NULL;
+  int ret =0;
+
+  GST_ERROR_OBJECT (self, "codec dec output dump start. w = %d, h = %d", outbuf->width[0], outbuf->height[0]);
+
+  sprintf(filename, "/opt/usr/dec_output_dump_%d_%d.yuv", outbuf->stride_width[0], outbuf->height[0]);
+  fp = fopen(filename, "ab");
+
+  for (i = 0; i < outbuf->height[0]; i++) {
+    ret = fwrite(temp, outbuf->width[0], 1, fp);
+    temp += outbuf->stride_width[0];
+  }
+
+  temp = (char *)outbuf->data[1];
+
+  for(i = 0; i < outbuf->height[1]; i++) {
+   ret = fwrite(temp, outbuf->width[1], 1, fp);
+    temp += outbuf->stride_width[1];
+  }
+
+  GST_ERROR_OBJECT (self,"codec dec output dumped!! ret = %d", ret);
+  fclose(fp);
+}
+#endif
+
 static gboolean
 gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
     GstOMXBuffer * inbuf, GstBuffer * outbuf)
@@ -1160,6 +1196,7 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
         MMVideoBuffer *out_imgb = NULL;
         out_imgb = (MMVideoBuffer*)(inbuf->omx_buf->pBuffer);
         out_imgb->type = MM_VIDEO_BUFFER_TYPE_TBM_BO;
+
         if (out_imgb->type == MM_VIDEO_BUFFER_TYPE_TBM_BO) {
           GST_LOG_OBJECT (self, "dec output buf: fd[0]:%d  fd[1]:%d fd[2]:%d  w[0]:%d h[0]:%d  buf_share_method:%d",
                   out_imgb->handle.dmabuf_fd[0], out_imgb->handle.dmabuf_fd[1], out_imgb->handle.dmabuf_fd[2],
@@ -1169,6 +1206,9 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
         } else {
           GST_WARNING_OBJECT (self, "dec output buf has TBM_BO buf_share_method");
         }
+#ifdef CODEC_DEC_OUTPUT_DUMP
+      decoder_output_dump(self, out_imgb);
+#endif
 #else
         SCMN_IMGB *out_imgb = NULL;
         out_imgb = (SCMN_IMGB*)(inbuf->omx_buf->pBuffer);
@@ -2279,7 +2319,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
      return FALSE;
 #else
     if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
-      return FALSE
+      return FALSE;
 #endif
 #if 0
     GST_ERROR_OBJECT (self, "\n6. DISABLE OUTPUT PORT\n");
@@ -2521,7 +2561,7 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
 #ifdef USE_TBM
 #ifdef USE_MM_VIDEO_BUFFER
       gst_buffer_extract (codec_data, 0,
-          buf->scmn_buffer->handle.paddr[0] + buf->omx_buf->nOffset,
+          buf->scmn_buffer->data[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
 #else
       gst_buffer_extract (codec_data, 0,
@@ -2561,7 +2601,7 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
 #ifdef USE_TBM
 #ifdef USE_MM_VIDEO_BUFFER
      gst_buffer_extract (frame->input_buffer, offset,
-          buf->scmn_buffer->handle.paddr[0] + buf->omx_buf->nOffset,
+          buf->scmn_buffer->data[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
 #else
       gst_buffer_extract (frame->input_buffer, offset,
