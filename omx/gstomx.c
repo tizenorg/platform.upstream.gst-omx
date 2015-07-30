@@ -71,7 +71,7 @@ gst_omx_core_acquire (const gchar * filename)
     {
 #else
 #ifdef USE_OMX_TARGET_ODROID
-    if (g_str_has_suffix (filename, "usr/lib/libExynosOMX_Core.so")) {
+    if (g_str_has_suffix (filename, "vc/lib/libopenmaxil.so")) {
 #else
     if (g_str_has_suffix (filename, "vc/lib/libopenmaxil.so")) {
 #endif
