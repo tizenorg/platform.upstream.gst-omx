@@ -1,7 +1,7 @@
 Name:           gst-omx
 Summary:        GStreamer plug-in that allows communication with OpenMAX IL components
 Version:        1.0.0
-Release:        4
+Release:        5
 License:        LGPL-2.1+
 Group:          Multimedia/Framework
 Source0:        %{name}-%{version}.tar.gz
@@ -30,7 +30,7 @@ export CFLAGS+=" -DEXYNOS_SPECIFIC"
 export CFLAGS+=" -DUSE_TBM"
 %endif
 
-%configure --disable-static --prefix=/usr
+%configure --disable-static --prefix=/usr --with-omx-target=exynos
 
 make %{?jobs:-j%jobs}
 
@@ -39,14 +39,12 @@ make %{?jobs:-j%jobs}
 rm -rf %{buildroot}
 mkdir -p %{buildroot}/usr/share/license
 cp COPYING %{buildroot}/usr/share/license/%{name}
-mkdir -p %{buildroot}/usr/etc
-cp -arf config/odroid/gstomx.conf %{buildroot}/usr/etc
 %make_install
 
 %files
 %manifest gst-omx.manifest
 %defattr(-,root,root,-)
 %{_libdir}/gstreamer-1.0/libgstomx.so
-/usr/etc/gstomx.conf
+/etc/xdg/gstomx.conf
 /usr/share/license/%{name}
 
