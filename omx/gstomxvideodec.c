@@ -2540,10 +2540,6 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
       goto flow_error;
     }
 
-    /* clear codec_data. MFC is not able to handle this in case of mpeg4. */
-    if (self->codec_data)
-      gst_buffer_replace (&self->codec_data, NULL);
-
     if (self->codec_data) {
       GST_DEBUG_OBJECT (self, "Passing codec data to the component");
 
