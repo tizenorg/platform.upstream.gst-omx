@@ -1,6 +1,6 @@
 EXTRA_DIST = gstomx.conf
 
-if USE_OMX_TARGET_ODROID
+if USE_OMX_TARGET_EXYNOS64
 configdir = $(sysconfdir)/xdg
 config_DATA = gstomx.conf
 endif

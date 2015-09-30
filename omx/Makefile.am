@@ -12,8 +12,11 @@ endif
 
 libgstomx_la_SOURCES = \
 	gstomx.c \
+	gstomxbufferpool.c \
+	gstomxvideo.c \
 	gstomxvideodec.c \
 	gstomxvideoenc.c \
+	gstomxaudiodec.c \
 	gstomxaudioenc.c \
 	gstomxmjpegdec.c \
 	gstomxmpeg4videodec.c \
@@ -26,12 +29,21 @@ libgstomx_la_SOURCES = \
 	gstomxmpeg4videoenc.c \
 	gstomxh264enc.c \
 	gstomxh263enc.c \
-	gstomxaacenc.c
+	gstomxaacdec.c \
+	gstomxmp3dec.c \
+	gstomxaacenc.c \
+	gstomxamrdec.c \
+	gstomxaudiosink.c \
+	gstomxanalogaudiosink.c \
+	gstomxhdmiaudiosink.c	
 
 noinst_HEADERS = \
 	gstomx.h \
+	gstomxbufferpool.h \
+	gstomxvideo.h \
 	gstomxvideodec.h \
 	gstomxvideoenc.h \
+	gstomxaudiodec.h \
 	gstomxaudioenc.h \
 	gstomxmjpegdec.h \
 	gstomxmpeg2videodec.h \
@@ -44,7 +56,13 @@ noinst_HEADERS = \
 	gstomxmpeg4videoenc.h \
 	gstomxh264enc.h \
 	gstomxh263enc.h \
-	gstomxaacenc.h
+	gstomxaacdec.h \
+	gstomxmp3dec.h \
+	gstomxaacenc.h \
+	gstomxamrdec.h \
+	gstomxaudiosink.h \
+	gstomxanalogaudiosink.h \
+	gstomxhdmiaudiosink.h 	
 
 if !HAVE_EXTERNAL_OMX
 OMX_INCLUDEPATH = -I$(abs_srcdir)/openmax
@@ -52,17 +70,17 @@ endif
 
 libgstomx_la_CFLAGS = \
 	-DGST_USE_UNSTABLE_API=1 \
-	$(CFLAGS) \
 	$(OMX_INCLUDEPATH) \
+	$(GST_GL_CFLAGS) \
 	$(GST_PLUGINS_BASE_CFLAGS) \
 	$(GST_BASE_CFLAGS) \
 	$(GST_CFLAGS) \
 	$(TBM_CFLAGS) \
-	$(MM_COMMON_CFLAGS)
-
+	$(GMODULE_NO_EXPORT_CFLAGS) \
+        $(MM_COMMON_CFLAGS)
 libgstomx_la_CFLAGS += -DUSE_MM_VIDEO_BUFFER
-
 libgstomx_la_LIBADD = \
+	$(GST_GL_LIBS) \
 	$(GST_PLUGINS_BASE_LIBS) \
 	-lgstaudio-@GST_API_VERSION@ \
 	-lgstpbutils-@GST_API_VERSION@ \
@@ -70,8 +88,8 @@ libgstomx_la_LIBADD = \
 	$(GST_BASE_LIBS) \
 	$(GST_LIBS) \
 	$(TBM_LIBS) \
+	$(GMODULE_NO_EXPORT_LIBS) \
 	$(MM_COMMON_LIBS)
-
 libgstomx_la_LDFLAGS = \
 	$(GST_PLUGIN_LDFLAGS) \
 	$(TBM_LDFLAGS) \

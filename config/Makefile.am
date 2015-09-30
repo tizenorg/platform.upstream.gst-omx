@@ -1,1 +1,1 @@
-SUBDIRS = bellagio rpi exynos
+SUBDIRS = bellagio rpi exynos exynos64
