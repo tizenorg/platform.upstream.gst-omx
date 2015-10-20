@@ -1770,7 +1770,7 @@ gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int
           ptr->handle.dmabuf_fd[0] = gst_omx_tbm_get_bo_fd(ptr->handle.bo[0]);
           ptr->data[0] = gst_omx_tbm_get_bo_ptr(ptr->handle.bo[0]);
           ptr->size[0] = port->port_def.nBufferSize;
-          ptr->type = MM_VIDEO_BUFFER_TYPE_PHYSICAL_ADDRESS;
+          ptr->type = MM_VIDEO_BUFFER_TYPE_TBM_BO;
       }
       else { /* output port */
 
@@ -1867,7 +1867,7 @@ gst_omx_port_tbm_allocate_enc_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int
           ptr->handle.bo[0] = gst_omx_tbm_allocate_bo(bufMgr, port->port_def.nBufferSize);
           ptr->handle.dmabuf_fd[0] = gst_omx_tbm_get_bo_fd(ptr->handle.bo[0]);
           ptr->handle.paddr[0] = gst_omx_tbm_get_bo_ptr(ptr->handle.bo[0]);
-          ptr->type = MM_VIDEO_BUFFER_TYPE_PHYSICAL_ADDRESS;
+          ptr->type = MM_VIDEO_BUFFER_TYPE_TBM_BO;
           ptr->size[0] = port->port_def.nBufferSize;
           ptr->handle_num = 1;
       }

@@ -1354,7 +1354,7 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
     /*Specific for exynos processors*/
     /*if (gst_omx_port_allocate_buffers (self->enc_out_port) != OMX_ErrorNone)*/
     if(gst_omx_port_tbm_allocate_enc_buffers(self->hTBMBufMgr,self->enc_out_port,
-        self->enc_in_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
+        self->enc_out_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
 #else
     /* And disable output port */
     if (gst_omx_port_set_enabled (self->enc_out_port, FALSE) != OMX_ErrorNone)

@@ -1,7 +1,7 @@
 Name:           gst-omx
 Summary:        GStreamer plug-in that allows communication with OpenMAX IL components
 Version:        1.0.0
-Release:        5
+Release:        6
 License:        LGPL-2.1+
 Group:          Multimedia/Framework
 Source0:        %{name}-%{version}.tar.gz
@@ -25,12 +25,14 @@ cp %{SOURCE1001} .
 %build
 ./autogen.sh --noconfigure
 
-%ifarch %{arm}
 export CFLAGS+=" -DEXYNOS_SPECIFIC"
 export CFLAGS+=" -DUSE_TBM"
-%endif
 
+%ifarch aarch64
+%configure --disable-static --prefix=/usr --with-omx-target=exynos64
+%else
 %configure --disable-static --prefix=/usr --with-omx-target=exynos
+%endif
 
 make %{?jobs:-j%jobs}
 
