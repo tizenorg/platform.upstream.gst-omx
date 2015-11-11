@@ -532,38 +532,27 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
       case GST_VIDEO_FORMAT_ST12:{
         GstMemory *mem_imgb = NULL;
         void *imgb_data = NULL;
-#ifdef USE_MM_VIDEO_BUFFER
-        MMVideoBuffer *out_imgb = NULL;
-        out_imgb = (MMVideoBuffer*)(inbuf->omx_buf->pBuffer);
-        out_imgb->type = MM_VIDEO_BUFFER_TYPE_TBM_BO;
+#ifdef USE_TBM
+        MMVideoBuffer *mm_vbuffer = NULL;
+        mm_vbuffer = (MMVideoBuffer*)(inbuf->omx_buf->pBuffer);
+        mm_vbuffer->type = MM_VIDEO_BUFFER_TYPE_TBM_BO;
 
-        if (out_imgb->type == MM_VIDEO_BUFFER_TYPE_TBM_BO) {
+        if (mm_vbuffer->type == MM_VIDEO_BUFFER_TYPE_TBM_BO) {
           GST_LOG_OBJECT (self, "dec output buf: fd[0]:%d  fd[1]:%d fd[2]:%d  w[0]:%d h[0]:%d  buf_share_method:%d",
-                  out_imgb->handle.dmabuf_fd[0], out_imgb->handle.dmabuf_fd[1], out_imgb->handle.dmabuf_fd[2],
-                  out_imgb->width[0], out_imgb->height[0], out_imgb->type);
-        } else if (out_imgb->type == MM_VIDEO_BUFFER_TYPE_PHYSICAL_ADDRESS) {
+                  mm_vbuffer->handle.dmabuf_fd[0], mm_vbuffer->handle.dmabuf_fd[1], mm_vbuffer->handle.dmabuf_fd[2],
+                  mm_vbuffer->width[0], mm_vbuffer->height[0], mm_vbuffer->type);
+        } else if (mm_vbuffer->type == MM_VIDEO_BUFFER_TYPE_PHYSICAL_ADDRESS) {
           GST_LOG_OBJECT (self, "dec output uses hw addr");
         } else {
           GST_WARNING_OBJECT (self, "dec output buf has TBM_BO buf_share_method");
         }
 #ifdef CODEC_DEC_OUTPUT_DUMP
-       decoder_output_dump(self, out_imgb);
+       decoder_output_dump(self, mm_vbuffer);
 #endif
-#else
-        SCMN_IMGB *out_imgb = NULL;
-        out_imgb = (SCMN_IMGB*)(inbuf->omx_buf->pBuffer);
-        if (out_imgb->buf_share_method == BUF_SHARE_METHOD_FD) {
-          GST_LOG_OBJECT (self, "dec output buf: fd[0]:%d  fd[1]:%d fd[2]:%d  w[0]:%d h[0]:%d  buf_share_method:%d",
-                  out_imgb->fd[0], out_imgb->fd[1], out_imgb->fd[2], out_imgb->w[0], out_imgb->h[0], out_imgb->buf_share_method);
-        } else if (out_imgb->buf_share_method == BUF_SHARE_METHOD_PADDR) {
-          GST_LOG_OBJECT (self, "dec output uses hw addr");
-        } else {
-          GST_WARNING_OBJECT (self, "dec output buf has wrong buf_share_method");
-        }
 #endif
         if (gst_buffer_n_memory(outbuf) < 2) {
-            imgb_data = g_malloc0(sizeof(*out_imgb));
-            mem_imgb = gst_memory_new_wrapped(0, imgb_data, sizeof(*out_imgb), 0, sizeof(*out_imgb), imgb_data, g_free);
+            imgb_data = g_malloc0(sizeof(*mm_vbuffer));
+            mem_imgb = gst_memory_new_wrapped(0, imgb_data, sizeof(*mm_vbuffer), 0, sizeof(*mm_vbuffer), imgb_data, g_free);
             gst_buffer_append_memory(outbuf, mem_imgb);
         } else {
             GstMapInfo imgb_info = GST_MAP_INFO_INIT;
@@ -572,10 +561,8 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
             imgb_data = imgb_info.data;
             gst_memory_unmap(mem_imgb, &imgb_info);
         }
-#ifdef USE_MM_VIDEO_BUFFER
-        memcpy(imgb_data, out_imgb, sizeof(MMVideoBuffer));
-#else
-        memcpy(imgb_data, out_imgb, sizeof(SCMN_IMGB));
+#ifdef USE_TBM
+        memcpy(imgb_data, mm_vbuffer, sizeof(MMVideoBuffer));
 #endif
         ret = TRUE;
         break;
@@ -870,8 +857,8 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
       was_enabled = FALSE;
     }
 #ifdef USE_TBM
-    err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port,
-        self->dec_in_port->port_def.format.video.eCompressionFormat);
+    err = gst_omx_port_tbm_allocate_dec_buffers(port, self->hTBMBufMgr,
+      self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
     err = gst_omx_port_allocate_buffers (port);
 #endif
@@ -906,7 +893,7 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
         }
       }
 #ifdef USE_TBM
-      err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port,
+      err = gst_omx_port_tbm_allocate_dec_buffers(port, self->hTBMBufMgr,
           self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
       err = gst_omx_port_allocate_buffers (port);
@@ -1812,6 +1799,8 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
   GstStructure *s;
   const gchar *format_str;
 #ifdef USE_TBM
+  gchar *format_tmp;
+  int i;
   EnableGemBuffersParams gemBuffers;
 #endif
 
@@ -1848,11 +1837,27 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
     return FALSE;
   }
 
-  intersection = gst_caps_truncate (intersection);
-  intersection = gst_caps_fixate (intersection);
+  for(i=0; i<gst_caps_get_size(intersection); i++)
+  {
+      s = gst_caps_get_structure (intersection, i);
+      format_tmp = gst_structure_get_string (s, "format");
 
-  s = gst_caps_get_structure (intersection, 0);
-  format_str = gst_structure_get_string (s, "format");
+      if(!strncmp(format_tmp, "S", 1)) {
+          format_str = format_tmp;
+          GST_DEBUG_OBJECT (self, "SEC format found");
+          break;
+      }
+  }
+
+  if(!format_str) {
+    intersection = gst_caps_truncate (intersection);
+    intersection = gst_caps_fixate (intersection);
+
+    s = gst_caps_get_structure (intersection, 0);
+    format_str = gst_structure_get_string (s, "format");
+    GST_DEBUG_OBJECT (self, "first structure will be fixated");
+  }
+
   if (!format_str ||
       (format =
           gst_video_format_from_string (format_str)) ==
@@ -2085,7 +2090,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     if (gst_omx_port_set_enabled (self->dec_in_port, TRUE) != OMX_ErrorNone)
       return FALSE;
 #ifdef USE_TBM
-    if(gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,self->dec_in_port, 0) != OMX_ErrorNone)
+    if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_in_port, self->hTBMBufMgr, 0) != OMX_ErrorNone)
      return FALSE;
 #else
     if (gst_omx_port_allocate_buffers (self->dec_in_port) != OMX_ErrorNone)
@@ -2126,18 +2131,36 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
         return FALSE;
 
       /* Need to allocate buffers to reach Idle state */
+#ifdef USE_TBM
+      if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_in_port, self->hTBMBufMgr, 0) != OMX_ErrorNone)
+          return FALSE;
+      if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_out_port, self->hTBMBufMgr,
+          self->dec_in_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
+          return FALSE;
+#else
       if (gst_omx_port_allocate_buffers (self->dec_in_port) != OMX_ErrorNone)
         return FALSE;
+      if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
+        return FALSE;
+#endif
     } else {
       if (gst_omx_component_set_state (self->dec,
               OMX_StateIdle) != OMX_ErrorNone)
         return FALSE;
 
       /* Need to allocate buffers to reach Idle state */
+#ifdef USE_TBM
+      if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_in_port, self->hTBMBufMgr, 0) != OMX_ErrorNone)
+          return FALSE;
+      if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_out_port, self->hTBMBufMgr,
+          self->dec_in_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
+          return FALSE;
+#else
       if (gst_omx_port_allocate_buffers (self->dec_in_port) != OMX_ErrorNone)
         return FALSE;
       if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
         return FALSE;
+#endif
     }
 
     if (gst_omx_component_get_state (self->dec,
@@ -2351,7 +2374,7 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
         goto reconfigure_error;
       }
 #ifdef USE_TBM
-      err = gst_omx_port_tbm_allocate_dec_buffers(self->hTBMBufMgr,port,
+      err = gst_omx_port_tbm_allocate_dec_buffers(port, self->hTBMBufMgr,
           self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
       err = gst_omx_port_allocate_buffers (port);
@@ -2405,21 +2428,17 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
       buf->omx_buf->nFlags |= OMX_BUFFERFLAG_CODECCONFIG;
       buf->omx_buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
       buf->omx_buf->nFilledLen = gst_buffer_get_size (codec_data);;
+
 #ifdef USE_TBM
-#ifdef USE_MM_VIDEO_BUFFER
       gst_buffer_extract (codec_data, 0,
-          buf->scmn_buffer->data[0] + buf->omx_buf->nOffset,
+          buf->mm_vbuffer->data[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
-#else
-      gst_buffer_extract (codec_data, 0,
-          buf->scmn_buffer->a[0] + buf->omx_buf->nOffset,
-          buf->omx_buf->nFilledLen);
-#endif
 #else
       gst_buffer_extract (codec_data, 0,
           buf->omx_buf->pBuffer + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
 #endif
+
       if (GST_CLOCK_TIME_IS_VALID (timestamp))
         buf->omx_buf->nTimeStamp =
             gst_util_uint64_scale (timestamp, OMX_TICKS_PER_SECOND, GST_SECOND);
@@ -2446,20 +2465,15 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
     GST_DEBUG_OBJECT (self, "nFilledLen %d, %p", buf->omx_buf->nFilledLen, buf->omx_buf->pBuffer);
 
 #ifdef USE_TBM
-#ifdef USE_MM_VIDEO_BUFFER
      gst_buffer_extract (frame->input_buffer, offset,
-          buf->scmn_buffer->data[0] + buf->omx_buf->nOffset,
+          buf->mm_vbuffer->data[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
-#else
-      gst_buffer_extract (frame->input_buffer, offset,
-          buf->scmn_buffer->a[0] + buf->omx_buf->nOffset,
-          buf->omx_buf->nFilledLen);
-#endif
 #else
     gst_buffer_extract (frame->input_buffer, offset,
         buf->omx_buf->pBuffer + buf->omx_buf->nOffset,
         buf->omx_buf->nFilledLen);
 #endif
+
     if (timestamp != GST_CLOCK_TIME_NONE) {
       buf->omx_buf->nTimeStamp =
           gst_util_uint64_scale (timestamp, OMX_TICKS_PER_SECOND, GST_SECOND);

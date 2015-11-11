@@ -16,7 +16,7 @@ gst-openmax is a GStreamer plug-in that allows communication with OpenMAX IL com
 Multiple OpenMAX IL implementations can be used.
 
 %prep
-%setup -q -n %{name}-%{version} 
+%setup -q -n %{name}-%{version}
 
 %build
 ./autogen.sh --noconfigure
@@ -45,5 +45,4 @@ cp COPYING %{buildroot}/usr/share/license/%{name}
 %{_libdir}/gstreamer-1.0/libgstomx.so
 /etc/xdg/gstomx.conf
 /usr/share/license/%{name}
-
 

@@ -134,58 +134,6 @@ typedef struct _GstOMXMessage GstOMXMessage;
 /* MODIFICATION */
 typedef enum GOmxVendor GOmxVendor; /* check omx vender */
 
-/* using common scmn_imgb format */
-#define SCMN_IMGB_MAX_PLANE         (4) /* max channel count */
-
-/* image buffer definition
-    +------------------------------------------+ ---
-    |                                          |  ^
-    |     a[], p[]                             |  |
-    |     +---------------------------+ ---    |  |
-    |     |                           |  ^     |  |
-    |     |<---------- w[] ---------->|  |     |  |
-    |     |                           |  |     |  |
-    |     |                           |        |
-    |     |                           |  h[]   |  e[]
-    |     |                           |        |
-    |     |                           |  |     |  |
-    |     |                           |  |     |  |
-    |     |                           |  v     |  |
-    |     +---------------------------+ ---    |  |
-    |                                          |  v
-    +------------------------------------------+ ---
-
-    |<----------------- s[] ------------------>|
-*/
-
-typedef struct
-{
-    int      w[SCMN_IMGB_MAX_PLANE];    /* width of each image plane */
-    int      h[SCMN_IMGB_MAX_PLANE];    /* height of each image plane */
-    int      s[SCMN_IMGB_MAX_PLANE];    /* stride of each image plane */
-    int      e[SCMN_IMGB_MAX_PLANE];    /* elevation of each image plane */
-    void   * a[SCMN_IMGB_MAX_PLANE];    /* user space address of each image plane */
-    void   * p[SCMN_IMGB_MAX_PLANE];    /* physical address of each image plane, if needs */
-    int      cs;    /* color space type of image */
-    int      x;    /* left postion, if needs */
-    int      y;    /* top position, if needs */
-    int      __dummy2;    /* to align memory */
-    int      data[16];    /* arbitrary data */
-
-    int fd[SCMN_IMGB_MAX_PLANE];    /* DMABUF fd of each image plane */
-    int buf_share_method;
-
-    int y_size;                         /* Y plane size in case of ST12 */
-    int uv_size;                        /* UV plane size in case of ST12 */
-    //void *bo[SCMN_IMGB_MAX_PLANE];      /* Tizen buffer object of each image plane */
-    tbm_bo bo[SCMN_IMGB_MAX_PLANE];
-
-    void *jpeg_data;                    /* JPEG data */
-    int jpeg_size;                      /* JPEG size */
-
-    int tz_enable;                      /* tzmem buffer */
-} SCMN_IMGB;
-
 #ifdef USE_TBM
 
 #define MFC_INPUT_BUFFER_PLANE      1
@@ -215,11 +163,7 @@ struct _TBMInputBuffer
 
 struct _TBMOutputBuffer
 {
-#ifdef USE_MM_VIDEO_BUFFER
     MMVideoBuffer *tbmBuffer[MAX_OUTPUT_BUFFER];
-#else
-    SCMN_IMGB *tbmBuffer[MAX_OUTPUT_BUFFER];
-#endif
     OMX_U32 allocatedCount;
     GList *buffers;
 };
@@ -233,8 +177,6 @@ struct _EnableGemBuffersParams
   OMX_U32 nPortIndex;
   OMX_BOOL enable;
 };
-
-
 #endif
 
 enum
@@ -427,13 +369,8 @@ struct _GstOMXBuffer {
   gboolean eglimage;
 
 #ifdef USE_TBM
-#ifdef USE_MM_VIDEO_BUFFER
   /* MMVideoBuffer array to use TBM buffers */
-   MMVideoBuffer *scmn_buffer;
-#else
-  /* SCMN_IMGB array to use TBM buffers */
-  SCMN_IMGB *scmn_buffer;
-#endif
+   MMVideoBuffer *mm_vbuffer;
 #endif
 };
 
@@ -497,8 +434,8 @@ gboolean          gst_omx_port_is_flushing (GstOMXPort *port);
 
 OMX_ERRORTYPE     gst_omx_port_allocate_buffers (GstOMXPort *port);
 #ifdef USE_TBM
-OMX_ERRORTYPE     gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr  bufMgr, GstOMXPort * port, int eCompressionFormat);
-OMX_ERRORTYPE     gst_omx_port_tbm_allocate_enc_buffers (tbm_bufmgr  bufMgr, GstOMXPort * port, int eCompressionFormat);
+OMX_ERRORTYPE     gst_omx_port_tbm_allocate_dec_buffers (GstOMXPort * port, tbm_bufmgr  bufMgr, int eCompressionFormat);
+OMX_ERRORTYPE     gst_omx_port_tbm_allocate_enc_buffers (GstOMXPort * port, tbm_bufmgr  bufMgr, int eCompressionFormat);
 #endif
 OMX_ERRORTYPE     gst_omx_port_use_buffers (GstOMXPort *port, const GList *buffers);
 OMX_ERRORTYPE     gst_omx_port_use_eglimages (GstOMXPort *port, const GList *images);

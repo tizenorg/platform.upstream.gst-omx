@@ -721,7 +721,7 @@ gst_omx_video_enc_loop (GstOMXVideoEnc * self)
       if (err != OMX_ErrorNone)
         goto reconfigure_error;
 #ifdef USE_TBM
-    err = gst_omx_port_tbm_allocate_enc_buffers(self->hTBMBufMgr,port,
+    err = gst_omx_port_tbm_allocate_enc_buffers(port, self->hTBMBufMgr,
         self->enc_in_port->port_def.format.video.eCompressionFormat);
 #else
       err = gst_omx_port_allocate_buffers (port);
@@ -1072,10 +1072,8 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
 
     case OMX_EXT_COLOR_FormatNV12LPhysicalAddress: /* FALL THROUGH */
     case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
-#ifdef USE_MM_VIDEO_BUFFER
+#ifdef USE_TBM
         port_def.nBufferSize = sizeof(MMVideoBuffer);
-#else
-        port_def.nBufferSize = sizeof(SCMN_IMGB);
 #endif
         break;
 
@@ -1167,7 +1165,7 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
     if (gst_omx_port_set_enabled (self->enc_in_port, TRUE) != OMX_ErrorNone)
       return FALSE;
 #ifdef USE_TBM
-    if(gst_omx_port_tbm_allocate_enc_buffers(self->hTBMBufMgr,self->enc_in_port,
+    if(gst_omx_port_tbm_allocate_enc_buffers(self->enc_in_port, self->hTBMBufMgr,
         self->enc_in_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
         return FALSE;
 #else
@@ -1215,18 +1213,18 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
 
       /* Need to allocate buffers to reach Idle state */
 #ifdef USE_TBM
-    if(gst_omx_port_tbm_allocate_enc_buffers(self->hTBMBufMgr,self->enc_in_port,
+    if(gst_omx_port_tbm_allocate_enc_buffers(self->enc_in_port, self->hTBMBufMgr,
         self->enc_in_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
         return FALSE;
-#else	  
+#else
       if (gst_omx_port_allocate_buffers (self->enc_in_port) != OMX_ErrorNone)
         return FALSE;
 #endif
 
 #ifdef USE_TBM
-    if(gst_omx_port_tbm_allocate_enc_buffers(self->hTBMBufMgr,self->enc_out_port,
+    if(gst_omx_port_tbm_allocate_enc_buffers(self->enc_out_port, self->hTBMBufMgr,
         self->enc_out_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
-#else		
+#else
       if (gst_omx_port_allocate_buffers (self->enc_out_port) != OMX_ErrorNone)
 #endif
         return FALSE;
@@ -1462,54 +1460,39 @@ gst_omx_video_enc_fill_buffer (GstOMXVideoEnc * self, GstBuffer * inbuf,
     case GST_VIDEO_FORMAT_SN12:{
         GstMemory* ext_memory = gst_buffer_peek_memory(inbuf, 1);
         GstMapInfo ext_info =  GST_MAP_INFO_INIT;
-#ifdef USE_MM_VIDEO_BUFFER
         MMVideoBuffer *ext_buf = NULL;
-       if (!ext_memory) {
-             GST_WARNING_OBJECT (self, "null MMVideoBuffer pointer  in hw color format. skip this.");
-            goto done;
+
+        if (!ext_memory) {
+          GST_WARNING_OBJECT (self, "null MMVideoBuffer pointer  in hw color format. skip this.");
+          goto done;
         }
 
         gst_memory_map(ext_memory, &ext_info, GST_MAP_READ);
         ext_buf = (MMVideoBuffer*)ext_info.data;
         gst_memory_unmap(ext_memory, &ext_info);
-        if (ext_buf != NULL && ext_buf->type == 1) {
+
+        if (ext_buf != NULL && ext_buf->type == MM_VIDEO_BUFFER_TYPE_TBM_BO) {
+
+          if (ext_buf->handle.dmabuf_fd[0] == NULL)
+            gst_omx_tbm_get_bo_fd(ext_buf->handle.bo[0]);
+
+          if (ext_buf->handle.dmabuf_fd[1] == NULL)
+            gst_omx_tbm_get_bo_fd(ext_buf->handle.bo[1]);
+
           GST_LOG_OBJECT (self, "enc. fd[0]:%d  fd[1]:%d  fd[2]:%d  w[0]:%d  h[0]:%d   buf_share_method:%d",
               ext_buf->handle.dmabuf_fd[0], ext_buf->handle.dmabuf_fd[1], ext_buf->handle.dmabuf_fd[2], ext_buf->width[0], ext_buf->height[0], ext_buf->type);
-        } else if (ext_buf != NULL && ext_buf->type == 0) {
-          GST_LOG_OBJECT (self, "enc input buf uses hw addr");
         } else {
-          GST_WARNING_OBJECT (self, "enc input buf has wrong buf_share_method");
+          GST_WARNING_OBJECT (self, "enc input buf has wrong buf_share_method[%d]", ext_buf->type);
         }
 
         outbuf->omx_buf->nAllocLen = sizeof(MMVideoBuffer);
         outbuf->omx_buf->nFilledLen = sizeof(MMVideoBuffer);
         memcpy (outbuf->omx_buf->pBuffer, ext_buf, sizeof(MMVideoBuffer));
-#else
-        SCMN_IMGB *ext_buf = NULL;
-        if (!ext_memory) {
-            GST_WARNING_OBJECT (self, "null SCMN_IMGB in hw color format. skip this.");
-            goto done;
-        }
-
-        gst_memory_map(ext_memory, &ext_info, GST_MAP_READ);
-        ext_buf = (SCMN_IMGB*)ext_info.data;
-        gst_memory_unmap(ext_memory, &ext_info);
-        if (ext_buf != NULL && ext_buf->buf_share_method == 1) {
-          GST_LOG_OBJECT (self, "enc. fd[0]:%d  fd[1]:%d  fd[2]:%d  w[0]:%d  h[0]:%d   buf_share_method:%d",
-              ext_buf->fd[0], ext_buf->fd[1], ext_buf->fd[2], ext_buf->w[0], ext_buf->h[0], ext_buf->buf_share_method);
-        } else if (ext_buf != NULL && ext_buf->buf_share_method == 0) {
-          GST_LOG_OBJECT (self, "enc input buf uses hw addr");
-        } else {
-          GST_WARNING_OBJECT (self, "enc input buf has wrong buf_share_method");
-        }
 
 #ifdef CODEC_ENC_INPUT_DUMP
         gst_omx_video_enc_input_dump(ext_buf);
 #endif
-        outbuf->omx_buf->nAllocLen = sizeof(SCMN_IMGB);
-        outbuf->omx_buf->nFilledLen = sizeof(SCMN_IMGB);
-        memcpy (outbuf->omx_buf->pBuffer, ext_buf, sizeof(SCMN_IMGB));
-#endif
+
         ret = TRUE;
         break;
     }
@@ -1594,7 +1577,7 @@ gst_omx_video_enc_handle_frame (GstVideoEncoder * encoder,
         goto reconfigure_error;
       }
 #ifdef USE_TBM
-    err = gst_omx_port_tbm_allocate_enc_buffers(self->hTBMBufMgr,port,
+    err = gst_omx_port_tbm_allocate_enc_buffers(port, self->hTBMBufMgr,
         self->enc_in_port->port_def.format.video.eCompressionFormat);
 #else
       err = gst_omx_port_allocate_buffers (port);

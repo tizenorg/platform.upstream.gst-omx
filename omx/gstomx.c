@@ -1629,11 +1629,7 @@ gst_omx_port_allocate_buffers_unlocked (GstOMXPort * port,
     buf->settings_cookie = port->settings_cookie;
 
 #ifdef USE_TBM
-#ifdef USE_MM_VIDEO_BUFFER
-    buf->scmn_buffer = (MMVideoBuffer*) l->data;
-#else
-    buf->scmn_buffer = (SCMN_IMGB*) l->data;
-#endif
+      buf->mm_vbuffer = (MMVideoBuffer*) l->data;
 #endif
 
     g_ptr_array_add (port->buffers, buf);
@@ -1703,20 +1699,19 @@ gst_omx_port_allocate_buffers (GstOMXPort * port)
 #ifdef USE_TBM
 /* NOTE: Uses comp->lock and comp->messages_lock */
 OMX_ERRORTYPE
-gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int eCompressionFormat)
+gst_omx_port_tbm_allocate_dec_buffers (GstOMXPort * port, tbm_bufmgr bufMgr, int eCompressionFormat)
 {
-  OMX_ERRORTYPE err = OMX_ErrorNone;
   guint n = 0;
-  GList *buffers = NULL;
-#ifdef USE_MM_VIDEO_BUFFER
-  MMVideoBuffer *ptr = NULL;
-#else
-  SCMN_IMGB *ptr = NULL;
-#endif
   int y_size = 0;
   int uv_size = 0;
+  GList *buffers = NULL;
+  MMVideoBuffer *ptr = NULL;
+  GstOMXComponent *comp;
+  OMX_ERRORTYPE err = OMX_ErrorNone;
 
   g_return_val_if_fail (port != NULL, OMX_ErrorUndefined);
+
+  comp = port->comp;
 
   g_mutex_lock (&port->comp->lock);
 
@@ -1727,70 +1722,43 @@ gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int
   n = port->port_def.nBufferCountActual;
 
   for(int i = 0; i < n; i++) {
-
-#ifdef USE_MM_VIDEO_BUFFER
       ptr = (MMVideoBuffer*) malloc(sizeof(MMVideoBuffer));
       memset(ptr,0,sizeof(MMVideoBuffer));
-      if(port->index == 0) {
 
+      if(port->index == 0) {
           ptr->handle.bo[0] = gst_omx_tbm_allocate_bo(bufMgr, port->port_def.nBufferSize);
           ptr->handle.dmabuf_fd[0] = gst_omx_tbm_get_bo_fd(ptr->handle.bo[0]);
           ptr->data[0] = gst_omx_tbm_get_bo_ptr(ptr->handle.bo[0]);
           ptr->size[0] = port->port_def.nBufferSize;
           ptr->type = MM_VIDEO_BUFFER_TYPE_TBM_BO;
+
+          GST_INFO_OBJECT (comp->parent,
+                  "Allocating %d buffer[%p] for %s port %u", i,
+                  ptr->handle.bo[0], comp->name, (guint) port->index);
       }
       else { /* output port */
-
           y_size = gst_omx_calculate_y_size(eCompressionFormat,
-              port->port_def.format.video.nStride, port->port_def.format.video.nSliceHeight);
+                  port->port_def.format.video.nStride, port->port_def.format.video.nSliceHeight);
           ptr->handle.bo[0] = gst_omx_tbm_allocate_bo(bufMgr, y_size);
           ptr->handle.dmabuf_fd[0] = gst_omx_tbm_get_bo_fd(ptr->handle.bo[0]);
           ptr->data[0] = gst_omx_tbm_get_bo_ptr(ptr->handle.bo[0]);
           ptr->handle.paddr[0] = ptr->data[0];
           ptr->size[0] = y_size;
 
-        GST_LOG("%s  size:[%d]",__FUNCTION__, y_size);
-
           uv_size = gst_omx_calculate_uv_size(eCompressionFormat,
-              port->port_def.format.video.nStride, port->port_def.format.video.nSliceHeight >> 1);
+                  port->port_def.format.video.nStride, port->port_def.format.video.nSliceHeight >> 1);
           ptr->handle.bo[1] = gst_omx_tbm_allocate_bo(bufMgr, uv_size);
           ptr->handle.dmabuf_fd[1] = gst_omx_tbm_get_bo_fd(ptr->handle.bo[1]);
           ptr->data[1] = gst_omx_tbm_get_bo_ptr(ptr->handle.bo[1]);
           ptr->size[1] = uv_size;
           ptr->type = MM_VIDEO_BUFFER_TYPE_DMABUF_FD;
-          GST_ERROR(" fd[0]:%d, bo[0]:%p fd[1]:%d, bo[1]:%p, a[0]:%p",ptr->handle.dmabuf_fd[0],ptr->handle.bo[0],ptr->handle.dmabuf_fd[1],ptr->handle.bo[1], ptr->data[0]);
           ptr->plane_num = 2;
+          GST_INFO_OBJECT (comp->parent,
+                  "Allocating %d buffer bo[0]:%p bo[1]:%p fd[0]:%d fd[1]:%d size[0]:%d size[1]:%d for %s port %u", i,
+                  ptr->handle.bo[0], ptr->handle.bo[0], ptr->handle.dmabuf_fd[0], ptr->handle.dmabuf_fd[1],
+                  ptr->size[0], ptr->size[1], comp->name, (guint) port->index);
 
       }
-#else
-      ptr = (SCMN_IMGB*) malloc(sizeof(SCMN_IMGB));
-      memset(ptr,0,sizeof(SCMN_IMGB));
-      if(port->index == 0) {
-
-          ptr->bo[0] = gst_omx_tbm_allocate_bo(bufMgr, port->port_def.nBufferSize);
-          ptr->fd[0] = gst_omx_tbm_get_bo_fd(ptr->bo[0]);
-          ptr->a[0] = gst_omx_tbm_get_bo_ptr(ptr->bo[0]);
-      }
-      else { /* output port */
-
-          y_size = gst_omx_calculate_y_size(eCompressionFormat,
-              port->port_def.format.video.nStride, port->port_def.format.video.nSliceHeight);
-          ptr->bo[0] = gst_omx_tbm_allocate_bo(bufMgr, y_size);
-          ptr->fd[0] = gst_omx_tbm_get_bo_fd(ptr->bo[0]);
-          ptr->a[0] = gst_omx_tbm_get_bo_ptr(ptr->bo[0]);
-
-          uv_size = gst_omx_calculate_uv_size(eCompressionFormat,
-              port->port_def.format.video.nStride, port->port_def.format.video.nSliceHeight >> 1);
-          ptr->bo[1] = gst_omx_tbm_allocate_bo(bufMgr, uv_size);
-          ptr->fd[1] = gst_omx_tbm_get_bo_fd(ptr->bo[1]);
-          ptr->a[1] = gst_omx_tbm_get_bo_ptr(ptr->bo[1]);
-
-          ptr->y_size = y_size;
-          ptr->uv_size = uv_size;
-          ptr->buf_share_method = BUF_SHARE_METHOD_FD;
-
-      }
-#endif
       buffers = g_list_append(buffers,(gpointer)ptr);
   }
 
@@ -1803,18 +1771,14 @@ gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int
 
 /* NOTE: Uses comp->lock and comp->messages_lock */
 OMX_ERRORTYPE
-gst_omx_port_tbm_allocate_enc_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int eCompressionFormat)
+gst_omx_port_tbm_allocate_enc_buffers (GstOMXPort * port, tbm_bufmgr bufMgr, int eCompressionFormat)
 {
+  int y_size = 0;
+  int uv_size = 0;
   OMX_ERRORTYPE err = OMX_ErrorNone;
   guint n = 0;
   GList *buffers = NULL;
-#ifdef USE_MM_VIDEO_BUFFER
   MMVideoBuffer *ptr = NULL;
-#else
-  SCMN_IMGB *ptr = NULL;
-#endif
-  int y_size = 0;
-  int uv_size = 0;
 
   g_return_val_if_fail (port != NULL, OMX_ErrorUndefined);
 
@@ -1826,7 +1790,6 @@ gst_omx_port_tbm_allocate_enc_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int
   n = port->port_def.nBufferCountActual;
 
   for(int i = 0; i < n; i++) {
-#ifdef USE_MM_VIDEO_BUFFER
       ptr = (MMVideoBuffer*) malloc(sizeof(MMVideoBuffer));
       memset(ptr,0,sizeof(MMVideoBuffer));
       if(port->index == 1) {
@@ -1838,16 +1801,6 @@ gst_omx_port_tbm_allocate_enc_buffers (tbm_bufmgr bufMgr, GstOMXPort * port, int
           ptr->size[0] = port->port_def.nBufferSize;
           ptr->handle_num = 1;
       }
-#else
-      ptr = (SCMN_IMGB*) malloc(sizeof(SCMN_IMGB));
-      memset(ptr,0,sizeof(SCMN_IMGB));
-      if(port->index == 1) {
-
-          ptr->bo[0] = gst_omx_tbm_allocate_bo(bufMgr, port->port_def.nBufferSize);
-          ptr->fd[0] = gst_omx_tbm_get_bo_fd(ptr->bo[0]);
-          ptr->a[0] = gst_omx_tbm_get_bo_ptr(ptr->bo[0]);
-      }
-#endif
       buffers = g_list_append(buffers,(gpointer)ptr);
   }
 
@@ -1938,18 +1891,12 @@ gst_omx_port_deallocate_buffers_unlocked (GstOMXPort * port)
 
 #ifdef USE_TBM
     /* deallocate tbm buffers */
-    if(buf->scmn_buffer != NULL) {
-#ifdef USE_MM_VIDEO_BUFFER
-        gst_omx_tbm_deallocate_bo(buf->scmn_buffer->handle.bo[0]);
+    if(buf->mm_vbuffer != NULL) {
+        gst_omx_tbm_deallocate_bo(buf->mm_vbuffer->handle.bo[0]);
         if(port->index == 1) /* output port */
-            gst_omx_tbm_deallocate_bo(buf->scmn_buffer->handle.bo[1]);
-#else
-        gst_omx_tbm_deallocate_bo(buf->scmn_buffer->bo[0]);
-        if(port->index == 1) /* output port */
-            gst_omx_tbm_deallocate_bo(buf->scmn_buffer->bo[1]);
-#endif
-        free(buf->scmn_buffer);
-        buf->scmn_buffer = NULL;
+            gst_omx_tbm_deallocate_bo(buf->mm_vbuffer->handle.bo[1]);
+        free(buf->mm_vbuffer);
+        buf->mm_vbuffer = NULL;
     }
 #endif
     /* omx_buf can be NULL if allocation failed earlier
@@ -2728,20 +2675,15 @@ gst_omx_calculate_y_size(int compressionFormat, int width, int height)
     {
     case OMX_VIDEO_CodingH263: /* FALL THROUGH */
     case OMX_VIDEO_CodingMPEG4:
-        /*size = calc_yplane(width,height);*/
         size = CHOOSE_MAX_SIZE(calc_yplane(width,height),new_calc_yplane(width,height));
         break;
     case OMX_VIDEO_CodingMPEG2:
-        /*size = calc_yplane(width,height);*/
         size = CHOOSE_MAX_SIZE(calc_yplane(width,height),new_calc_yplane(width,height));
         size = size << 1; /* MFC FIX. double the calculated buffer size */
-        GST_LOG("calculating Y size of mpeg2: height:[%d], width:[%d], size:[%d]",height,width,size);
         break;
     case OMX_VIDEO_CodingAVC: /* FALL THROUGH */
         default:
-        /*size = calc_plane(width,height);*/
         size = CHOOSE_MAX_SIZE(calc_yplane(width,height),new_calc_yplane(width,height));
-        GST_LOG("calculating Y size of DEFAULT: height:[%d], width:[%d], size:[%d]",height,width,size);
     }
     return size;
 }
@@ -2754,19 +2696,15 @@ gst_omx_calculate_uv_size(int compressionFormat, int width, int height)
     {
     case OMX_VIDEO_CodingH263: /* FALL THROUGH */
     case OMX_VIDEO_CodingMPEG4:
-        /*size = calc_uvplane(width,height);*/
           size = CHOOSE_MAX_SIZE(calc_uvplane(width,height),new_calc_uvplane(width,height));
         break;
     case OMX_VIDEO_CodingMPEG2:
-        /*size = calc_uvplane(width,height);*/
         size = CHOOSE_MAX_SIZE(calc_uvplane(width,height),new_calc_uvplane(width,height));
         size = size << 1; /* MFC FIX. double the calculated buffer size */
         break;
     case OMX_VIDEO_CodingAVC: /* FALL THROUGH */
         default:
-        /*size = calc_plane(width,height);*/
         size = CHOOSE_MAX_SIZE(calc_uvplane(width,height),new_calc_uvplane(width,height));
-        GST_LOG("calculating UV size of DEFAULT: height:[%d], width:[%d], size:[%d]",height,width,size);
     }
     return size;
 }

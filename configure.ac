@@ -221,8 +221,8 @@ AC_ARG_ENABLE(Bsymbolic,
                LDFLAGS="${SAVED_LDFLAGS}"])
 
 AC_ARG_WITH([omx-target],
-        AS_HELP_STRING([--with-omx-target],[Use this OpenMAX IL target (generic, bellagio, rpi)]),
-        [ac_cv_omx_target="$withval"], [ac_cv_omx_target="none"])
+        AS_HELP_STRING([--with-omx-target],[Use this OpenMAX IL target (generic, bellagio, rpi, exynos, exynos64)]),
+        [ac_cv_omx_target="$withval"], [ac_cv_omx_target="generic"])
 
 ac_cv_omx_target_struct_packing="none"
 AC_MSG_NOTICE([Using $ac_cv_omx_target as OpenMAX IL target])
@@ -237,7 +237,7 @@ case "${ac_cv_omx_target}" in
   bellagio)
     AC_DEFINE(USE_OMX_TARGET_BELLAGIO, 1, [Use Bellagio OpenMAX IL target])
     ;;
-  exynos)
+ exynos)
     AC_DEFINE(USE_OMX_TARGET_EXYNOS, 1, [Use Exynos OpenMAX IL target])
     ;;
  exynos64)
@@ -410,6 +410,7 @@ config/exynos/Makefile
 config/exynos64/Makefile
 examples/Makefile
 examples/egl/Makefile
+m4/Makefile
 )
 
 AC_OUTPUT

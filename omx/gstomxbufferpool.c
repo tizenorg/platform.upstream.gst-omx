@@ -244,8 +244,7 @@ gst_omx_buffer_pool_stop (GstBufferPool * bpool)
         (bpool, g_ptr_array_index (pool->buffers, i));
 
   /* Remove any buffers that are there */
-  if(pool->buffers)
-      g_ptr_array_set_size (pool->buffers, 0);
+  g_ptr_array_set_size (pool->buffers, 0);
 
   if (pool->caps)
     gst_caps_unref (pool->caps);
@@ -396,6 +395,7 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
     g_ptr_array_add (pool->buffers, buf);
 
     switch (GST_VIDEO_INFO_FORMAT (&pool->video_info)) {
+        GST_WARNING_OBJECT (pool, "GST_VIDEO_CAPS");
       case GST_VIDEO_FORMAT_ABGR:
       case GST_VIDEO_FORMAT_ARGB:
       case GST_VIDEO_FORMAT_RGB16:
@@ -416,14 +416,14 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
         stride[1] = nstride;
         offset[1] = offset[0] + stride[0] * nslice;
         break;
-       case GST_VIDEO_FORMAT_SN12:
-       case GST_VIDEO_FORMAT_ST12:
-          offset[0] = 0;
-          stride[0] = pool->port->port_def.format.video.nStride;
-          offset[1] =
-              stride[0] * pool->port->port_def.format.video.nSliceHeight;
-          stride[1] = pool->port->port_def.format.video.nStride;
-          break;		
+      case GST_VIDEO_FORMAT_SN12:
+      case GST_VIDEO_FORMAT_ST12:
+        GST_WARNING_OBJECT (pool, "SN12SN12SN12SN12SN12");
+        offset[0] = 0;
+        stride[0] = pool->port->port_def.format.video.nStride;
+        offset[1] = stride[0] * pool->port->port_def.format.video.nSliceHeight;
+        stride[1] = pool->port->port_def.format.video.nStride;
+        break;
       default:
         g_assert_not_reached ();
         break;

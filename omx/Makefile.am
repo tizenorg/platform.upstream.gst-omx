@@ -62,7 +62,7 @@ noinst_HEADERS = \
 	gstomxamrdec.h \
 	gstomxaudiosink.h \
 	gstomxanalogaudiosink.h \
-	gstomxhdmiaudiosink.h 	
+	gstomxhdmiaudiosink.h
 
 if !HAVE_EXTERNAL_OMX
 OMX_INCLUDEPATH = -I$(abs_srcdir)/openmax
@@ -78,7 +78,7 @@ libgstomx_la_CFLAGS = \
 	$(TBM_CFLAGS) \
 	$(GMODULE_NO_EXPORT_CFLAGS) \
         $(MM_COMMON_CFLAGS)
-libgstomx_la_CFLAGS += -DUSE_MM_VIDEO_BUFFER
+
 libgstomx_la_LIBADD = \
 	$(GST_GL_LIBS) \
 	$(GST_PLUGINS_BASE_LIBS) \
