@@ -46,6 +46,8 @@
 #pragma GCC diagnostic pop
 #endif
 
+//#define CODEC_DEC_OUTPUT_DUMP
+#include <stdio.h>
 #include <string.h>
 
 #include "gstomxbufferpool.h"
@@ -144,7 +146,7 @@ gst_omx_video_dec_init (GstOMXVideoDec * self)
   g_mutex_init (&self->drain_lock);
   g_cond_init (&self->drain_cond);
 
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
   self->hTBMBufMgr = NULL;
   self->drm_fd = -1;
 #endif
@@ -203,7 +205,7 @@ gst_omx_video_dec_open (GstVideoDecoder * decoder)
   if (!self->dec_in_port || !self->dec_out_port)
     return FALSE;
 
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
 
    self->hTBMBufMgr = tbm_bufmgr_init(self->drm_fd);
    if(self->hTBMBufMgr == NULL){
@@ -308,7 +310,7 @@ gst_omx_video_dec_shutdown (GstOMXVideoDec * self)
       gst_omx_component_get_state (self->dec, 5 * GST_SECOND);
   }
 
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
    /* uninitialize tbm buffer manager */
    if(self->hTBMBufMgr != NULL){
     tbm_bufmgr_deinit(self->hTBMBufMgr);
@@ -437,6 +439,38 @@ gst_omx_video_dec_change_state (GstElement * element, GstStateChange transition)
   return ret;
 }
 
+#ifdef CODEC_DEC_OUTPUT_DUMP /* for decoder output dump */
+static inline void
+decoder_output_dump(GstOMXVideoDec *self, MMVideoBuffer *outbuf)
+{
+  char *temp = (char *)outbuf->data[0];
+  int i = 0;
+  char filename[100]={0};
+  FILE *fp = NULL;
+  int ret =0;
+
+  GST_ERROR_OBJECT (self, "codec dec output dump start. w = %d, h = %d", outbuf->width[0], outbuf->height[0]);
+
+  sprintf(filename, "/tmp/dec_output_dump_%d_%d.yuv", outbuf->stride_width[0], outbuf->height[0]);
+  fp = fopen(filename, "ab");
+
+  for (i = 0; i < outbuf->height[0]; i++) {
+    ret = fwrite(temp, outbuf->width[0], 1, fp);
+    temp += outbuf->stride_width[0];
+  }
+
+  temp = (char *)outbuf->data[1];
+
+  for(i = 0; i < outbuf->height[1]; i++) {
+   ret = fwrite(temp, outbuf->width[1], 1, fp);
+    temp += outbuf->stride_width[1];
+  }
+
+  GST_ERROR_OBJECT (self,"codec dec output dumped!! ret = %d", ret);
+  fclose(fp);
+}
+#endif
+
 static gboolean
 gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
     GstOMXBuffer * inbuf, GstBuffer * outbuf)
@@ -532,7 +566,7 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
       case GST_VIDEO_FORMAT_ST12:{
         GstMemory *mem_imgb = NULL;
         void *imgb_data = NULL;
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
         MMVideoBuffer *mm_vbuffer = NULL;
         mm_vbuffer = (MMVideoBuffer*)(inbuf->omx_buf->pBuffer);
         mm_vbuffer->type = MM_VIDEO_BUFFER_TYPE_TBM_BO;
@@ -561,7 +595,7 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
             imgb_data = imgb_info.data;
             gst_memory_unmap(mem_imgb, &imgb_info);
         }
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
         memcpy(imgb_data, mm_vbuffer, sizeof(MMVideoBuffer));
 #endif
         ret = TRUE;
@@ -856,7 +890,7 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
       }
       was_enabled = FALSE;
     }
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
     err = gst_omx_port_tbm_allocate_dec_buffers(port, self->hTBMBufMgr,
       self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
@@ -892,7 +926,7 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
           goto done;
         }
       }
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
       err = gst_omx_port_tbm_allocate_dec_buffers(port, self->hTBMBufMgr,
           self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
@@ -1529,7 +1563,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
       GST_OMX_BUFFER_POOL (self->out_port_pool)->current_buffer_index = i;
       flow_ret =
           gst_buffer_pool_acquire_buffer (self->out_port_pool,
-          &outbuf, &params);
+          &frame->output_buffer, &params);
       if (flow_ret != GST_FLOW_OK) {
         flow_ret =
             gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
@@ -1538,17 +1572,30 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
         goto invalid_buffer;
       }
 
-      if (GST_OMX_BUFFER_POOL (self->out_port_pool)->need_copy)
+      if (GST_OMX_BUFFER_POOL (self->out_port_pool)->need_copy){
         outbuf =
             copy_frame (&GST_OMX_BUFFER_POOL (self->out_port_pool)->video_info,
             outbuf);
-
       frame->output_buffer = outbuf;
 
       flow_ret =
           gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
       frame = NULL;
       buf = NULL;
+      } else {
+          if(!gst_omx_video_dec_fill_buffer (self, buf, frame->output_buffer)) {
+              gst_buffer_replace (&frame->output_buffer, NULL);
+              flow_ret =
+                  gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
+              frame = NULL;
+              gst_omx_port_release_buffer (port, buf);
+              goto invalid_buffer;
+          }
+          flow_ret =
+              gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
+          frame = NULL;
+          buf = NULL;
+      }
     } else {
       if ((flow_ret =
               gst_video_decoder_allocate_output_frame (GST_VIDEO_DECODER
@@ -1798,7 +1845,7 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
   GstVideoFormat format;
   GstStructure *s;
   const gchar *format_str;
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
   gchar *format_tmp;
   int i;
   EnableGemBuffersParams gemBuffers;
@@ -1900,7 +1947,7 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
   /* set plateform specific gem buffer settings. */
 
     /* Set platform specific buffer settings. to avoid plane support error.. */
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
     OMX_INIT_STRUCTURE(gemBuffers);
     gemBuffers.enable = OMX_TRUE;
     gemBuffers.nPortIndex = 1;
@@ -2089,7 +2136,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   if (needs_disable) {
     if (gst_omx_port_set_enabled (self->dec_in_port, TRUE) != OMX_ErrorNone)
       return FALSE;
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
     if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_in_port, self->hTBMBufMgr, 0) != OMX_ErrorNone)
      return FALSE;
 #else
@@ -2118,6 +2165,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
       GST_LOG_OBJECT (self, "Negotiation failed, will get output format later");
 
     if (!(klass->cdata.hacks & GST_OMX_HACK_NO_DISABLE_OUTPORT)) {
+#ifndef GST_TIZEN_MODIFICATION
       /* Disable output port */
       if (gst_omx_port_set_enabled (self->dec_out_port, FALSE) != OMX_ErrorNone)
         return FALSE;
@@ -2125,13 +2173,13 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
       if (gst_omx_port_wait_enabled (self->dec_out_port,
               1 * GST_SECOND) != OMX_ErrorNone)
         return FALSE;
-
+#endif
       if (gst_omx_component_set_state (self->dec,
               OMX_StateIdle) != OMX_ErrorNone)
         return FALSE;
 
       /* Need to allocate buffers to reach Idle state */
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
       if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_in_port, self->hTBMBufMgr, 0) != OMX_ErrorNone)
           return FALSE;
       if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_out_port, self->hTBMBufMgr,
@@ -2144,12 +2192,13 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
         return FALSE;
 #endif
     } else {
+
       if (gst_omx_component_set_state (self->dec,
               OMX_StateIdle) != OMX_ErrorNone)
         return FALSE;
 
       /* Need to allocate buffers to reach Idle state */
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
       if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_in_port, self->hTBMBufMgr, 0) != OMX_ErrorNone)
           return FALSE;
       if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_out_port, self->hTBMBufMgr,
@@ -2161,7 +2210,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
       if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
         return FALSE;
 #endif
-    }
+  }
 
     if (gst_omx_component_get_state (self->dec,
             GST_CLOCK_TIME_NONE) != OMX_StateIdle)
@@ -2373,7 +2422,7 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
         GST_VIDEO_DECODER_STREAM_LOCK (self);
         goto reconfigure_error;
       }
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
       err = gst_omx_port_tbm_allocate_dec_buffers(port, self->hTBMBufMgr,
           self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
@@ -2429,7 +2478,7 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
       buf->omx_buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
       buf->omx_buf->nFilledLen = gst_buffer_get_size (codec_data);;
 
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
       gst_buffer_extract (codec_data, 0,
           buf->mm_vbuffer->data[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
@@ -2464,7 +2513,7 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
         MIN (size - offset, buf->omx_buf->nAllocLen - buf->omx_buf->nOffset);
     GST_DEBUG_OBJECT (self, "nFilledLen %d, %p", buf->omx_buf->nFilledLen, buf->omx_buf->pBuffer);
 
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
      gst_buffer_extract (frame->input_buffer, offset,
           buf->mm_vbuffer->data[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);

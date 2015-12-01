@@ -515,7 +515,7 @@ EventHandler (OMX_HANDLETYPE hComponent, OMX_PTR pAppData, OMX_EVENTTYPE eEvent,
       GstOMXMessage *msg;
 
       /* Yes, this really happens... */
-      if (nData1 == OMX_ErrorNone)
+      if (nData2 == OMX_ErrorNone)
         break;
 
       msg = g_slice_new (GstOMXMessage);
@@ -1628,7 +1628,7 @@ gst_omx_port_allocate_buffers_unlocked (GstOMXPort * port,
     buf->used = FALSE;
     buf->settings_cookie = port->settings_cookie;
 
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
       buf->mm_vbuffer = (MMVideoBuffer*) l->data;
 #endif
 
@@ -1696,7 +1696,7 @@ gst_omx_port_allocate_buffers (GstOMXPort * port)
   return err;
 }
 
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
 /* NOTE: Uses comp->lock and comp->messages_lock */
 OMX_ERRORTYPE
 gst_omx_port_tbm_allocate_dec_buffers (GstOMXPort * port, tbm_bufmgr bufMgr, int eCompressionFormat)
@@ -1889,7 +1889,7 @@ gst_omx_port_deallocate_buffers_unlocked (GstOMXPort * port)
           "port %u", buf, comp->name, port->index);
     }
 
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
     /* deallocate tbm buffers */
     if(buf->mm_vbuffer != NULL) {
         gst_omx_tbm_deallocate_bo(buf->mm_vbuffer->handle.bo[0]);
@@ -2606,7 +2606,7 @@ gst_omx_set_default_role (GstOMXClassData * class_data,
     class_data->component_role = default_role;
 }
 
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
 
 int new_calc_plane(int width, int height)
 {
