@@ -5,7 +5,7 @@ dnl please read gstreamer/docs/random/autotools before changing this file
 dnl initialize autoconf
 dnl releases only do -Wall, git and prerelease does -Werror too
 dnl use a three digit version number for releases, and four for git/prerelease
-AC_INIT(GStreamer OpenMAX Plug-ins, 1.0.0,
+AC_INIT(GStreamer OpenMAX Plug-ins, 1.2.0,
     http://bugzilla.gnome.org/enter_bug.cgi?product=GStreamer,
     gst-omx)
 
@@ -48,7 +48,7 @@ AG_GST_LIBTOOL_PREPARE
 AS_LIBTOOL(GST, 0, 0, 0)
 
 dnl *** required versions of GStreamer stuff ***
-GST_REQ=1.0.0
+GST_REQ=1.2.2
 
 dnl *** autotools stuff ****
 
@@ -59,6 +59,8 @@ dnl Add parameters for aclocal
 AC_SUBST(ACLOCAL_AMFLAGS, "-I m4 -I common/m4")
 
 dnl *** check for arguments to configure ***
+
+AG_GST_ARG_DISABLE_FATAL_WARNINGS
 
 AG_GST_ARG_DEBUG
 AG_GST_ARG_PROFILING
@@ -137,6 +139,9 @@ dnl *** checks for dependency libraries ***
 dnl GLib is required
 AG_GST_GLIB_CHECK([2.32])
 
+dnl Needed by plugins that use g_module_*() API
+PKG_CHECK_MODULES(GMODULE_NO_EXPORT, gmodule-no-export-2.0)
+
 dnl checks for gstreamer
 dnl uninstalled is selected preferentially -- see pkg-config(1)
 AG_GST_CHECK_GST($GST_API_VERSION, [$GST_REQ], yes)
@@ -145,6 +150,11 @@ AG_GST_CHECK_GST_CONTROLLER($GST_API_VERSION, [$GST_REQ], yes)
 AG_GST_CHECK_GST_CHECK($GST_API_VERSION, [$GST_REQ], no)
 AG_GST_CHECK_GST_PLUGINS_BASE($GST_API_VERSION, [$GST_REQ], yes)
 AM_CONDITIONAL(HAVE_GST_CHECK, test "x$HAVE_GST_CHECK" = "xyes")
+PKG_CHECK_MODULES([GST_GL], [gstreamer-gl-1.0 >= 1.4.0], [
+  AC_DEFINE(HAVE_GST_GL, 1, [Have gstreamer-gl])
+  GST_GL=yes
+], [GST_GL=no])
+AM_CONDITIONAL(HAVE_GST_GL, test "x$GST_GL" = "xyes")
 
 dnl Check for documentation xrefs
 GLIB_PREFIX="`$PKG_CONFIG --variable=prefix glib-2.0`"
@@ -152,9 +162,30 @@ GST_PREFIX="`$PKG_CONFIG --variable=prefix gstreamer-$GST_API_VERSION`"
 AC_SUBST(GLIB_PREFIX)
 AC_SUBST(GST_PREFIX)
 
+AC_ARG_WITH([omx-header-path],
+            AS_HELP_STRING([--with-omx-header-path],[path of external OpenMAX IL header files]),
+        [omx_header_path="$withval"], [omx_header_path="none"])
+
+if test x"$omx_header_path" != x"none"; then
+    CPPFLAGS="$CPPFLAGS -I$omx_header_path"
+fi
 dnl Check for external OpenMAX IL headers
 AC_CHECK_HEADER([OMX_Core.h], [HAVE_EXTERNAL_OMX=yes], [HAVE_EXTERNAL_OMX=no], [AC_INCLUDES_DEFAULT])
 AM_CONDITIONAL(HAVE_EXTERNAL_OMX, test "x$HAVE_EXTERNAL_OMX" = "xyes")
+
+dnl Our internal OpenMAX IL headers have OMX_VideoExt.h
+HAVE_VIDEO_EXT=yes
+if test "x$HAVE_EXTERNAL_OMX" = "xyes"; then
+    AC_CHECK_HEADER([OMX_VideoExt.h], [HAVE_VIDEO_EXT=yes], [HAVE_VIDEO_EXT=no], [AC_INCLUDES_DEFAULT])
+fi
+
+VIDEO_HEADERS="#include <OMX_Video.h>"
+if test "x$HAVE_VIDEO_EXT" = "xyes"; then
+    AC_DEFINE(HAVE_VIDEO_EXT, 1, [OpenMAX IL has OMX_VideoExt.h header])
+    VIDEO_HEADERS="$VIDEO_HEADERS
+#include <OMX_VideoExt.h>
+"
+fi
 
 AC_CHECK_DECLS([OMX_VIDEO_CodingVP8],
   [
@@ -162,7 +193,7 @@ AC_CHECK_DECLS([OMX_VIDEO_CodingVP8],
     HAVE_VP8=yes
   ], [
     HAVE_VP8=no
-  ], [[#include <OMX_Video.h>]])
+  ], [[$VIDEO_HEADERS]])
 AM_CONDITIONAL(HAVE_VP8, test "x$HAVE_VP8" = "xyes")
 
 AC_CHECK_DECLS([OMX_VIDEO_CodingTheora],
@@ -171,7 +202,7 @@ AC_CHECK_DECLS([OMX_VIDEO_CodingTheora],
     HAVE_THEORA=yes
   ], [
     HAVE_THEORA=no
-  ], [[#include <OMX_Video.h>]])
+  ], [[$VIDEO_HEADERS]])
 AM_CONDITIONAL(HAVE_THEORA, test "x$HAVE_THEORA" = "xyes")
 
 dnl Check for -Bsymbolic-functions linker flag used to avoid
@@ -190,8 +221,8 @@ AC_ARG_ENABLE(Bsymbolic,
                LDFLAGS="${SAVED_LDFLAGS}"])
 
 AC_ARG_WITH([omx-target],
-        AS_HELP_STRING([--with-omx-target],[Use this OpenMAX IL target (generic, bellagio, rpi, exynos, exynos64)]),
-        [ac_cv_omx_target="$withval"], [ac_cv_omx_target="generic"])
+        AS_HELP_STRING([--with-omx-target],[Use this OpenMAX IL target (generic, bellagio, rpi)]),
+        [ac_cv_omx_target="$withval"], [ac_cv_omx_target="none"])
 
 ac_cv_omx_target_struct_packing="none"
 AC_MSG_NOTICE([Using $ac_cv_omx_target as OpenMAX IL target])
@@ -206,14 +237,8 @@ case "${ac_cv_omx_target}" in
   bellagio)
     AC_DEFINE(USE_OMX_TARGET_BELLAGIO, 1, [Use Bellagio OpenMAX IL target])
     ;;
- exynos)
-    AC_DEFINE(USE_OMX_TARGET_EXYNOS, 1, [Use Exynos OpenMAX IL target])
-    ;;
- exynos64)
-    AC_DEFINE(USE_OMX_TARGET_EXYNOS64, 1, [Use Exynos64 OpenMAX IL target])
-    ;;
-  *)
-    AC_ERROR([invalid OpenMAX IL target])
+  none|*)
+    AC_ERROR([invalid OpenMAX IL target, you must specify one of --with-omx-target={generic,rpi,bellagio}])
     ;;
 esac
 AM_CONDITIONAL(USE_OMX_TARGET_GENERIC, test "x$ac_cv_omx_target" = "xgeneric")
@@ -249,8 +274,30 @@ AG_GST_SET_PACKAGE_RELEASE_DATETIME_WITH_NANO([$PACKAGE_VERSION_NANO],
   ["${srcdir}/gst-omx.doap"],
   [$PACKAGE_VERSION_MAJOR.$PACKAGE_VERSION_MINOR.$PACKAGE_VERSION_MICRO])
 
+dnl build static plugins or not
+AC_MSG_CHECKING([whether to build static plugins or not])
+AC_ARG_ENABLE(
+  static-plugins,
+  AC_HELP_STRING(
+    [--enable-static-plugins],
+    [build static plugins @<:@default=no@:>@]),
+  [AS_CASE(
+    [$enableval], [no], [], [yes], [],
+    [AC_MSG_ERROR([bad value "$enableval" for --enable-static-plugins])])],
+  [enable_static_plugins=no])
+AC_MSG_RESULT([$enable_static_plugins])
+if test "x$enable_static_plugins" = xyes; then
+  AC_DEFINE(GST_PLUGIN_BUILD_STATIC, 1,
+    [Define if static plugins should be built])
+  GST_PLUGIN_LIBTOOLFLAGS=""
+else
+  GST_PLUGIN_LIBTOOLFLAGS="--tag=disable-static"
+fi
+AC_SUBST(GST_PLUGIN_LIBTOOLFLAGS)
+AM_CONDITIONAL(GST_PLUGIN_BUILD_STATIC, test "x$enable_static_plugins" = "xyes")
+
 dnl define an ERROR_CFLAGS Makefile variable
-AG_GST_SET_ERROR_CFLAGS($GST_GIT, [
+AG_GST_SET_ERROR_CFLAGS($FATAL_WARNINGS, [
     -Wmissing-declarations -Wmissing-prototypes -Wredundant-decls -Wundef
     -Wwrite-strings -Wformat-nonliteral -Wformat-security -Wformat-nonliteral
     -Winit-self -Wmissing-include-dirs -Waddress -Waggregate-return
@@ -312,7 +359,7 @@ AC_SUBST(GST_OMX_CFLAGS)
 
 dnl FIXME: do we want to rename to GST_ALL_* ?
 dnl add GST_OPTION_CFLAGS, but overridable
-GST_CFLAGS="$GLIB_CFLAGS $GST_CFLAGS $GLIB_EXTRA_CFLAGS \$(GST_OPTION_CFLAGS)"
+GST_CFLAGS="$GST_CFLAGS $GLIB_EXTRA_CFLAGS \$(GST_OPTION_CFLAGS)"
 AC_SUBST(GST_CFLAGS)
 dnl add GCOV libs because libtool strips -fprofile-arcs -ftest-coverage
 GST_LIBS="$GST_LIBS \$(GCOV_LIBS)"
@@ -328,7 +375,7 @@ AC_SUBST(GST_ALL_LDFLAGS)
 
 dnl this really should only contain flags, not libs - they get added before
 dnl whatevertarget_LIBS and -L flags here affect the rest of the linking
-GST_PLUGIN_LDFLAGS="-module -avoid-version -export-symbols-regex '^[_]*gst_plugin_desc.*' $GST_ALL_LDFLAGS"
+GST_PLUGIN_LDFLAGS="-module -avoid-version -export-symbols-regex '^[_]*gst_plugin_.*' $GST_ALL_LDFLAGS"
 AC_SUBST(GST_PLUGIN_LDFLAGS)
 
 dnl *** output files ***
@@ -353,8 +400,8 @@ tools/Makefile
 config/Makefile
 config/bellagio/Makefile
 config/rpi/Makefile
-config/exynos/Makefile
-config/exynos64/Makefile
+examples/Makefile
+examples/egl/Makefile
 )
 
 AC_OUTPUT

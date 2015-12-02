@@ -49,9 +49,14 @@
 #include <OMX_Core.h>
 #include <OMX_Component.h>
 
-#include <tbm_type.h>
-#include <tbm_surface.h>
-#include <tbm_bufmgr.h>
+#ifdef USE_OMX_TARGET_RPI
+#include <OMX_Broadcom.h>
+#endif
+
+#ifdef HAVE_VIDEO_EXT
+#include <OMX_VideoExt.h>
+#endif
+
 #ifdef GST_OMX_STRUCT_PACKING
 #pragma pack()
 #endif
@@ -106,6 +111,11 @@ G_BEGIN_DECLS
  * Happens with Broadcom's OpenMAX implementation.
  */
 #define GST_OMX_HACK_NO_COMPONENT_ROLE                                G_GUINT64_CONSTANT (0x0000000000000080)
+
+/* If the component doesn't allow disabling the outport while
+ * when setting the format until the output format is known.
+ */
+#define GST_OMX_HACK_NO_DISABLE_OUTPORT                               G_GUINT64_CONSTANT (0x0000000000000100)
 
 typedef struct _GstOMXCore GstOMXCore;
 typedef struct _GstOMXPort GstOMXPort;
@@ -300,6 +310,12 @@ typedef enum {
   GST_OMX_MESSAGE_BUFFER_DONE,
 } GstOMXMessageType;
 
+typedef enum {
+  GST_OMX_COMPONENT_TYPE_SINK,
+  GST_OMX_COMPONENT_TYPE_SOURCE,
+  GST_OMX_COMPONENT_TYPE_FILTER
+} GstOmxComponentType;
+
 struct _GstOMXMessage {
   GstOMXMessageType type;
 
@@ -426,6 +442,8 @@ struct _GstOMXClassData {
   guint32 in_port_index, out_port_index;
 
   guint64 hacks;
+
+  GstOmxComponentType type;
 };
 
 GKeyFile *        gst_omx_get_configuration (void);
@@ -457,8 +475,9 @@ OMX_ERRORTYPE     gst_omx_component_set_parameter (GstOMXComponent * comp, OMX_I
 
 OMX_ERRORTYPE     gst_omx_component_get_config (GstOMXComponent * comp, OMX_INDEXTYPE index, gpointer config);
 OMX_ERRORTYPE     gst_omx_component_set_config (GstOMXComponent * comp, OMX_INDEXTYPE index, gpointer config);
-OMX_ERRORTYPE     gst_omx_component_setup_tunnel (GstOMXComponent * comp1, GstOMXPort * port1, GstOMXComponent * comp2, GstOMXPort * port2);
-OMX_ERRORTYPE     gst_omx_component_close_tunnel (GstOMXComponent * comp1, GstOMXPort * port1, GstOMXComponent * comp2, GstOMXPort * port2);
+
+OMX_ERRORTYPE     gst_omx_setup_tunnel (GstOMXPort * port1, GstOMXPort * port2);
+OMX_ERRORTYPE     gst_omx_close_tunnel (GstOMXPort * port1, GstOMXPort * port2);
 
 
 OMX_ERRORTYPE     gst_omx_port_get_port_definition (GstOMXPort * port, OMX_PARAM_PORTDEFINITIONTYPE * port_def);
@@ -490,51 +509,8 @@ gboolean          gst_omx_port_is_enabled (GstOMXPort * port);
 
 void              gst_omx_set_default_role (GstOMXClassData *class_data, const gchar *default_role);
 
-#ifdef USE_TBM
-
-/*MFC Buffer alignment macros*/
-#define S5P_FIMV_DEC_BUF_ALIGN                  (8 * 1024)
-#define S5P_FIMV_ENC_BUF_ALIGN                  (8 * 1024)
-#define S5P_FIMV_NV12M_HALIGN                   16
-#define S5P_FIMV_NV12M_LVALIGN                  16
-#define S5P_FIMV_NV12M_CVALIGN                  8
-#define S5P_FIMV_NV12MT_HALIGN                  128
-#define S5P_FIMV_NV12MT_VALIGN                  64
-#define S5P_FIMV_NV12M_SALIGN                   2048
-#define S5P_FIMV_NV12MT_SALIGN                  8192
-
-#define ALIGN(x, a)       (((x) + (a) - 1) & ~((a) - 1))
-
-/* Buffer alignment defines */
-#define SZ_1M                                   0x00100000
-#define S5P_FIMV_D_ALIGN_PLANE_SIZE             64
-
-#define S5P_FIMV_MAX_FRAME_SIZE                 (2 * SZ_1M)
-#define S5P_FIMV_NUM_PIXELS_IN_MB_ROW           16
-#define S5P_FIMV_NUM_PIXELS_IN_MB_COL           16
-
-/* Macro */
-#define ALIGN_TO_4KB(x)   ((((x) + (1 << 12) - 1) >> 12) << 12)
-#define DIV_ROUND_UP(n,d) (((n) + (d) - 1) / (d))
-#define CHOOSE_MAX_SIZE(a,b) ((a) > (b) ? (a) : (b))
-
-int new_calc_plane(int width, int height);
-int new_calc_yplane(int width, int height);
-int new_calc_uvplane(int width, int height);
-
-int calc_plane(int width, int height);
-int calc_yplane(int width, int height);
-int calc_uvplane(int width, int height);
-int gst_omx_calculate_y_size(int compressionFormat, int width, int height);
-int gst_omx_calculate_uv_size(int compressionFormat, int width, int height);
-
-tbm_bo            gst_omx_tbm_allocate_bo(tbm_bufmgr hBufmgr, int size);
-void              gst_omx_tbm_deallocate_bo(tbm_bo bo);
-OMX_U32           gst_omx_tbm_get_bo_fd(tbm_bo bo);
-OMX_PTR           gst_omx_tbm_get_bo_ptr(tbm_bo bo);
-
-#endif
-
+/* refered by plugin_init */
+GST_DEBUG_CATEGORY_EXTERN (gst_omx_video_debug_category);
 
 G_END_DECLS
 

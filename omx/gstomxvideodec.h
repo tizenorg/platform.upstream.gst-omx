@@ -21,6 +21,10 @@
 #ifndef __GST_OMX_VIDEO_DEC_H__
 #define __GST_OMX_VIDEO_DEC_H__
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/video/gstvideodecoder.h>
@@ -68,7 +72,7 @@ struct _GstOMXVideoDec
   /* < protected > */
   GstOMXComponent *dec;
   GstOMXPort *dec_in_port, *dec_out_port;
-
+  
   GstBufferPool *in_port_pool, *out_port_pool;
 
   /* < private > */
@@ -90,9 +94,10 @@ struct _GstOMXVideoDec
   gboolean eos;
 
   GstFlowReturn downstream_flow_ret;
-#ifdef USE_TBM
-  gint drm_fd;
-  tbm_bufmgr hTBMBufMgr;
+#ifdef USE_OMX_TARGET_RPI
+  GstOMXComponent *egl_render;
+  GstOMXPort *egl_in_port, *egl_out_port;
+  gboolean eglimage;
 #endif
 };
 
