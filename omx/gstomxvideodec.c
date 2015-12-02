@@ -76,8 +76,7 @@ static GstFlowReturn gst_omx_video_dec_finish (GstVideoDecoder * decoder);
 static gboolean gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec,
     GstQuery * query);
 
-static GstFlowReturn gst_omx_video_dec_drain (GstOMXVideoDec * self,
-    gboolean is_eos);
+static GstFlowReturn gst_omx_video_dec_drain (GstOMXVideoDec * self);
 
 static OMX_ERRORTYPE gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec *
     self);
@@ -139,6 +138,9 @@ static void
 gst_omx_video_dec_init (GstOMXVideoDec * self)
 {
   gst_video_decoder_set_packetized (GST_VIDEO_DECODER (self), TRUE);
+  gst_video_decoder_set_use_default_pad_acceptcaps (GST_VIDEO_DECODER_CAST
+      (self), TRUE);
+  GST_PAD_SET_ACCEPT_TEMPLATE (GST_VIDEO_DECODER_SINK_PAD (self));
 
   g_mutex_init (&self->drain_lock);
   g_cond_init (&self->drain_cond);
@@ -1603,9 +1605,15 @@ component_error:
 flushing:
   {
     GST_DEBUG_OBJECT (self, "Flushing -- stopping task");
+    g_mutex_lock (&self->drain_lock);
+    if (self->draining) {
+      self->draining = FALSE;
+      g_cond_broadcast (&self->drain_cond);
+    }
     gst_pad_pause_task (GST_VIDEO_DECODER_SRC_PAD (self));
     self->downstream_flow_ret = GST_FLOW_FLUSHING;
     self->started = FALSE;
+    g_mutex_unlock (&self->drain_lock);
     return;
   }
 
@@ -1663,8 +1671,14 @@ flow_error:
       self->started = FALSE;
     } else if (flow_ret == GST_FLOW_FLUSHING) {
       GST_DEBUG_OBJECT (self, "Flushing -- stopping task");
+      g_mutex_lock (&self->drain_lock);
+      if (self->draining) {
+        self->draining = FALSE;
+        g_cond_broadcast (&self->drain_cond);
+      }
       gst_pad_pause_task (GST_VIDEO_DECODER_SRC_PAD (self));
       self->started = FALSE;
+      g_mutex_unlock (&self->drain_lock);
     }
     GST_VIDEO_DECODER_STREAM_UNLOCK (self);
     return;
@@ -1725,7 +1739,6 @@ gst_omx_video_dec_start (GstVideoDecoder * decoder)
   self = GST_OMX_VIDEO_DEC (decoder);
 
   self->last_upstream_ts = 0;
-  self->eos = FALSE;
   self->downstream_flow_ret = GST_FLOW_OK;
 
   return TRUE;
@@ -1759,7 +1772,6 @@ gst_omx_video_dec_stop (GstVideoDecoder * decoder)
 
   self->downstream_flow_ret = GST_FLOW_FLUSHING;
   self->started = FALSE;
-  self->eos = FALSE;
 
   g_mutex_lock (&self->drain_lock);
   self->draining = FALSE;
@@ -1954,7 +1966,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
 
     GST_DEBUG_OBJECT (self, "Need to disable and drain decoder");
 
-    gst_omx_video_dec_drain (self, FALSE);
+    gst_omx_video_dec_drain (self);
     gst_omx_video_dec_flush (decoder);
     gst_omx_port_set_flushing (out_port, 5 * GST_SECOND, TRUE);
 
@@ -2163,15 +2175,7 @@ gst_omx_video_dec_flush (GstVideoDecoder * decoder)
   if (gst_omx_component_get_state (self->dec, 0) == OMX_StateLoaded)
     return TRUE;
 
-  /* 0) Wait until the srcpad loop is stopped,
-   * unlock GST_VIDEO_DECODER_STREAM_LOCK to prevent deadlocks
-   * caused by using this lock from inside the loop function */
-  GST_VIDEO_DECODER_STREAM_UNLOCK (self);
-  gst_pad_stop_task (GST_VIDEO_DECODER_SRC_PAD (decoder));
-  GST_DEBUG_OBJECT (self, "Flushing -- task stopped");
-  GST_VIDEO_DECODER_STREAM_LOCK (self);
-
-  /* 1) Pause the components */
+  /* 0) Pause the components */
   if (gst_omx_component_get_state (self->dec, 0) == OMX_StateExecuting) {
     gst_omx_component_set_state (self->dec, OMX_StatePause);
     gst_omx_component_get_state (self->dec, GST_CLOCK_TIME_NONE);
@@ -2184,6 +2188,14 @@ gst_omx_video_dec_flush (GstVideoDecoder * decoder)
     }
   }
 #endif
+
+  /* 1) Wait until the srcpad loop is stopped,
+   * unlock GST_VIDEO_DECODER_STREAM_LOCK to prevent deadlocks
+   * caused by using this lock from inside the loop function */
+  GST_VIDEO_DECODER_STREAM_UNLOCK (self);
+  gst_pad_stop_task (GST_VIDEO_DECODER_SRC_PAD (decoder));
+  GST_DEBUG_OBJECT (self, "Flushing -- task stopped");
+  GST_VIDEO_DECODER_STREAM_LOCK (self);
 
   /* 2) Flush the ports */
   GST_DEBUG_OBJECT (self, "flushing ports");
@@ -2231,7 +2243,6 @@ gst_omx_video_dec_flush (GstVideoDecoder * decoder)
 
   /* Reset our state */
   self->last_upstream_ts = 0;
-  self->eos = FALSE;
   self->downstream_flow_ret = GST_FLOW_OK;
   self->started = FALSE;
   GST_DEBUG_OBJECT (self, "Flush finished");
@@ -2257,12 +2268,6 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
   klass = GST_OMX_VIDEO_DEC_GET_CLASS (self);
 
   GST_DEBUG_OBJECT (self, "Handling frame");
-
-  if (self->eos) {
-    GST_WARNING_OBJECT (self, "Got frame after EOS");
-    gst_video_codec_frame_unref (frame);
-    return GST_FLOW_EOS;
-  }
 
   if (!self->started) {
     if (!GST_VIDEO_CODEC_FRAME_IS_SYNC_POINT (frame)) {
@@ -2558,11 +2563,11 @@ gst_omx_video_dec_finish (GstVideoDecoder * decoder)
 
   self = GST_OMX_VIDEO_DEC (decoder);
 
-  return gst_omx_video_dec_drain (self, TRUE);
+  return gst_omx_video_dec_drain (self);
 }
 
 static GstFlowReturn
-gst_omx_video_dec_drain (GstOMXVideoDec * self, gboolean is_eos)
+gst_omx_video_dec_drain (GstOMXVideoDec * self)
 {
   GstOMXVideoDecClass *klass;
   GstOMXBuffer *buf;
@@ -2578,14 +2583,6 @@ gst_omx_video_dec_drain (GstOMXVideoDec * self, gboolean is_eos)
     return GST_FLOW_OK;
   }
   self->started = FALSE;
-
-  /* Don't send EOS buffer twice, this doesn't work */
-  if (self->eos) {
-    GST_DEBUG_OBJECT (self, "Component is EOS already");
-    return GST_FLOW_OK;
-  }
-  if (is_eos)
-    self->eos = TRUE;
 
   if ((klass->cdata.hacks & GST_OMX_HACK_NO_EMPTY_EOS_BUFFER)) {
     GST_WARNING_OBJECT (self, "Component does not support empty EOS buffers");
@@ -2672,14 +2669,18 @@ gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec, GstQuery * query)
         GstAllocationParams params;
 
         gst_query_parse_nth_allocation_param (query, i, &allocator, &params);
-        if (allocator
-            && g_strcmp0 (allocator->mem_type,
-                GST_EGL_IMAGE_MEMORY_TYPE) == 0) {
-          found = TRUE;
-          gst_query_set_nth_allocation_param (query, 0, allocator, &params);
-          while (gst_query_get_n_allocation_params (query) > 1)
-            gst_query_remove_nth_allocation_param (query, 1);
-          break;
+        if (allocator) {
+          if (g_strcmp0 (allocator->mem_type, GST_EGL_IMAGE_MEMORY_TYPE) == 0) {
+            found = TRUE;
+            gst_query_set_nth_allocation_param (query, 0, allocator, &params);
+            while (gst_query_get_n_allocation_params (query) > 1)
+              gst_query_remove_nth_allocation_param (query, 1);
+          }
+
+          gst_object_unref (allocator);
+
+          if (found)
+            break;
         }
       }
 

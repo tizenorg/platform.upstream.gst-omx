@@ -402,6 +402,7 @@ config/bellagio/Makefile
 config/rpi/Makefile
 examples/Makefile
 examples/egl/Makefile
+m4/Makefile
 )
 
 AC_OUTPUT

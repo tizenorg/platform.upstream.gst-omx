@@ -50,8 +50,7 @@ static gboolean gst_omx_audio_dec_set_format (GstAudioDecoder * decoder,
 static void gst_omx_audio_dec_flush (GstAudioDecoder * decoder, gboolean hard);
 static GstFlowReturn gst_omx_audio_dec_handle_frame (GstAudioDecoder * decoder,
     GstBuffer * buffer);
-static GstFlowReturn gst_omx_audio_dec_drain (GstOMXAudioDec * self,
-    gboolean is_eos);
+static GstFlowReturn gst_omx_audio_dec_drain (GstOMXAudioDec * self);
 
 enum
 {
@@ -103,9 +102,14 @@ gst_omx_audio_dec_init (GstOMXAudioDec * self)
 {
   gst_audio_decoder_set_needs_format (GST_AUDIO_DECODER (self), TRUE);
   gst_audio_decoder_set_drainable (GST_AUDIO_DECODER (self), TRUE);
+  gst_audio_decoder_set_use_default_pad_acceptcaps (GST_AUDIO_DECODER_CAST
+      (self), TRUE);
+  GST_PAD_SET_ACCEPT_TEMPLATE (GST_AUDIO_DECODER_SINK_PAD (self));
 
   g_mutex_init (&self->drain_lock);
   g_cond_init (&self->drain_cond);
+
+  self->output_adapter = gst_adapter_new ();
 }
 
 static gboolean
@@ -220,6 +224,10 @@ gst_omx_audio_dec_finalize (GObject * object)
   g_mutex_clear (&self->drain_lock);
   g_cond_clear (&self->drain_cond);
 
+  if (self->output_adapter)
+    gst_object_unref (self->output_adapter);
+  self->output_adapter = NULL;
+
   G_OBJECT_CLASS (gst_omx_audio_dec_parent_class)->finalize (object);
 }
 
@@ -258,9 +266,6 @@ gst_omx_audio_dec_change_state (GstElement * element, GstStateChange transition)
       break;
   }
 
-  if (ret == GST_STATE_CHANGE_FAILURE)
-    return ret;
-
   ret =
       GST_ELEMENT_CLASS (gst_omx_audio_dec_parent_class)->change_state
       (element, transition);
@@ -290,11 +295,13 @@ gst_omx_audio_dec_change_state (GstElement * element, GstStateChange transition)
 static void
 gst_omx_audio_dec_loop (GstOMXAudioDec * self)
 {
+  GstOMXAudioDecClass *klass = GST_OMX_AUDIO_DEC_GET_CLASS (self);
   GstOMXPort *port = self->dec_out_port;
   GstOMXBuffer *buf = NULL;
   GstFlowReturn flow_ret = GST_FLOW_OK;
   GstOMXAcquireBufferReturn acq_return;
   OMX_ERRORTYPE err;
+  gint spf;
 
   acq_return = gst_omx_port_acquire_buffer (port, &buf);
   if (acq_return == GST_OMX_ACQUIRE_BUFFER_ERROR) {
@@ -489,11 +496,11 @@ gst_omx_audio_dec_loop (GstOMXAudioDec * self)
 
   GST_AUDIO_DECODER_STREAM_LOCK (self);
 
+  spf = klass->get_samples_per_frame (self, self->dec_out_port);
+
   if (buf->omx_buf->nFilledLen > 0) {
     GstBuffer *outbuf;
-    gint nframes, spf;
     GstMapInfo minfo;
-    GstOMXAudioDecClass *klass = GST_OMX_AUDIO_DEC_GET_CLASS (self);
 
     GST_DEBUG_OBJECT (self, "Handling output data");
 
@@ -528,30 +535,36 @@ gst_omx_audio_dec_loop (GstOMXAudioDec * self)
     }
     gst_buffer_unmap (outbuf, &minfo);
 
-    nframes = 1;
-    spf = klass->get_samples_per_frame (self, self->dec_out_port);
     if (spf != -1) {
-      nframes = buf->omx_buf->nFilledLen / self->info.bpf;
-      if (nframes % spf != 0)
-        GST_WARNING_OBJECT (self, "Output buffer does not contain an integer "
-            "number of input frames (frames: %d, spf: %d)", nframes, spf);
-      nframes = (nframes + spf - 1) / spf;
+      gst_adapter_push (self->output_adapter, outbuf);
+    } else {
+      flow_ret =
+          gst_audio_decoder_finish_frame (GST_AUDIO_DECODER (self), outbuf, 1);
     }
-
-    GST_BUFFER_TIMESTAMP (outbuf) =
-        gst_util_uint64_scale (buf->omx_buf->nTimeStamp, GST_SECOND,
-        OMX_TICKS_PER_SECOND);
-    if (buf->omx_buf->nTickCount != 0)
-      GST_BUFFER_DURATION (outbuf) =
-          gst_util_uint64_scale (buf->omx_buf->nTickCount, GST_SECOND,
-          OMX_TICKS_PER_SECOND);
-
-    flow_ret =
-        gst_audio_decoder_finish_frame (GST_AUDIO_DECODER (self), outbuf,
-        nframes);
   }
 
   GST_DEBUG_OBJECT (self, "Read frame from component");
+
+  if (spf != -1) {
+    GstBuffer *outbuf;
+    guint avail = gst_adapter_available (self->output_adapter);
+    guint nframes;
+
+    /* We take a multiple of codec frames and push
+     * them downstream
+     */
+    avail /= self->info.bpf;
+    nframes = avail / spf;
+    avail = nframes * spf;
+    avail *= self->info.bpf;
+
+    if (avail > 0) {
+      outbuf = gst_adapter_take_buffer (self->output_adapter, avail);
+      flow_ret =
+          gst_audio_decoder_finish_frame (GST_AUDIO_DECODER (self), outbuf,
+          nframes);
+    }
+  }
 
   GST_DEBUG_OBJECT (self, "Finished frame: %s", gst_flow_get_name (flow_ret));
 
@@ -586,14 +599,41 @@ component_error:
 flushing:
   {
     GST_DEBUG_OBJECT (self, "Flushing -- stopping task");
+    g_mutex_lock (&self->drain_lock);
+    if (self->draining) {
+      self->draining = FALSE;
+      g_cond_broadcast (&self->drain_cond);
+    }
     gst_pad_pause_task (GST_AUDIO_DECODER_SRC_PAD (self));
     self->downstream_flow_ret = GST_FLOW_FLUSHING;
     self->started = FALSE;
+    g_mutex_unlock (&self->drain_lock);
     return;
   }
 
 eos:
   {
+    spf = klass->get_samples_per_frame (self, self->dec_out_port);
+    if (spf != -1) {
+      GstBuffer *outbuf;
+      guint avail = gst_adapter_available (self->output_adapter);
+      guint nframes;
+
+      /* On EOS we take the complete adapter content, no matter
+       * if it is a multiple of the codec frame size or not.
+       */
+      avail /= self->info.bpf;
+      nframes = (avail + spf - 1) / spf;
+      avail *= self->info.bpf;
+
+      if (avail > 0) {
+        outbuf = gst_adapter_take_buffer (self->output_adapter, avail);
+        flow_ret =
+            gst_audio_decoder_finish_frame (GST_AUDIO_DECODER (self), outbuf,
+            nframes);
+      }
+    }
+
     g_mutex_lock (&self->drain_lock);
     if (self->draining) {
       GST_DEBUG_OBJECT (self, "Drained");
@@ -639,8 +679,14 @@ flow_error:
       self->started = FALSE;
     } else if (flow_ret == GST_FLOW_FLUSHING) {
       GST_DEBUG_OBJECT (self, "Flushing -- stopping task");
+      g_mutex_lock (&self->drain_lock);
+      if (self->draining) {
+        self->draining = FALSE;
+        g_cond_broadcast (&self->drain_cond);
+      }
       gst_pad_pause_task (GST_AUDIO_DECODER_SRC_PAD (self));
       self->started = FALSE;
+      g_mutex_unlock (&self->drain_lock);
     }
     GST_AUDIO_DECODER_STREAM_UNLOCK (self);
     return;
@@ -701,7 +747,6 @@ gst_omx_audio_dec_start (GstAudioDecoder * decoder)
   self = GST_OMX_AUDIO_DEC (decoder);
 
   self->last_upstream_ts = 0;
-  self->eos = FALSE;
   self->downstream_flow_ret = GST_FLOW_OK;
 
   return TRUE;
@@ -726,12 +771,14 @@ gst_omx_audio_dec_stop (GstAudioDecoder * decoder)
 
   self->downstream_flow_ret = GST_FLOW_FLUSHING;
   self->started = FALSE;
-  self->eos = FALSE;
 
   g_mutex_lock (&self->drain_lock);
   self->draining = FALSE;
   g_cond_broadcast (&self->drain_cond);
   g_mutex_unlock (&self->drain_lock);
+
+  gst_adapter_flush (self->output_adapter,
+      gst_adapter_available (self->output_adapter));
 
   gst_omx_component_get_state (self->dec, 5 * GST_SECOND);
 
@@ -781,7 +828,7 @@ gst_omx_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
 
     GST_DEBUG_OBJECT (self, "Need to disable and drain decoder");
 
-    gst_omx_audio_dec_drain (self, FALSE);
+    gst_omx_audio_dec_drain (self);
     gst_omx_audio_dec_flush (decoder, FALSE);
     gst_omx_port_set_flushing (out_port, 5 * GST_SECOND, TRUE);
 
@@ -920,11 +967,7 @@ gst_omx_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
     return FALSE;
   }
 
-  /* Start the srcpad loop again */
-  GST_DEBUG_OBJECT (self, "Starting task again");
   self->downstream_flow_ret = GST_FLOW_OK;
-  gst_pad_start_task (GST_AUDIO_DECODER_SRC_PAD (self),
-      (GstTaskFunction) gst_omx_audio_dec_loop, decoder, NULL);
 
   return TRUE;
 }
@@ -933,28 +976,54 @@ static void
 gst_omx_audio_dec_flush (GstAudioDecoder * decoder, gboolean hard)
 {
   GstOMXAudioDec *self = GST_OMX_AUDIO_DEC (decoder);
+  OMX_ERRORTYPE err = OMX_ErrorNone;
 
-  GST_DEBUG_OBJECT (self, "Resetting decoder");
+  GST_DEBUG_OBJECT (self, "Flushing decoder");
 
+  if (gst_omx_component_get_state (self->dec, 0) == OMX_StateLoaded)
+    return;
+
+  /* 0) Pause the components */
+  if (gst_omx_component_get_state (self->dec, 0) == OMX_StateExecuting) {
+    gst_omx_component_set_state (self->dec, OMX_StatePause);
+    gst_omx_component_get_state (self->dec, GST_CLOCK_TIME_NONE);
+  }
+
+  /* 1) Wait until the srcpad loop is stopped,
+   * unlock GST_AUDIO_DECODER_STREAM_LOCK to prevent deadlocks
+   * caused by using this lock from inside the loop function */
+  GST_AUDIO_DECODER_STREAM_UNLOCK (self);
+  gst_pad_stop_task (GST_AUDIO_DECODER_SRC_PAD (decoder));
+  GST_DEBUG_OBJECT (self, "Flushing -- task stopped");
+  GST_AUDIO_DECODER_STREAM_LOCK (self);
+
+  /* 2) Flush the ports */
+  GST_DEBUG_OBJECT (self, "flushing ports");
   gst_omx_port_set_flushing (self->dec_in_port, 5 * GST_SECOND, TRUE);
   gst_omx_port_set_flushing (self->dec_out_port, 5 * GST_SECOND, TRUE);
 
-  /* Wait until the srcpad loop is finished */
-  GST_AUDIO_ENCODER_STREAM_UNLOCK (self);
-  GST_PAD_STREAM_LOCK (GST_AUDIO_ENCODER_SRC_PAD (self));
-  GST_PAD_STREAM_UNLOCK (GST_AUDIO_ENCODER_SRC_PAD (self));
-  GST_AUDIO_ENCODER_STREAM_LOCK (self);
+  /* 3) Resume components */
+  gst_omx_component_set_state (self->dec, OMX_StateExecuting);
+  gst_omx_component_get_state (self->dec, GST_CLOCK_TIME_NONE);
 
+  /* 4) Unset flushing to allow ports to accept data again */
   gst_omx_port_set_flushing (self->dec_in_port, 5 * GST_SECOND, FALSE);
   gst_omx_port_set_flushing (self->dec_out_port, 5 * GST_SECOND, FALSE);
-  gst_omx_port_populate (self->dec_out_port);
 
-  /* Start the srcpad loop again */
+  err = gst_omx_port_populate (self->dec_out_port);
+
+  if (err != OMX_ErrorNone) {
+    GST_WARNING_OBJECT (self, "Failed to populate output port: %s (0x%08x)",
+        gst_omx_error_to_string (err), err);
+  }
+
+  /* Reset our state */
+  gst_adapter_flush (self->output_adapter,
+      gst_adapter_available (self->output_adapter));
   self->last_upstream_ts = 0;
   self->downstream_flow_ret = GST_FLOW_OK;
-  self->eos = FALSE;
-  gst_pad_start_task (GST_AUDIO_DECODER_SRC_PAD (self),
-      (GstTaskFunction) gst_omx_audio_dec_loop, decoder, NULL);
+  self->started = FALSE;
+  GST_DEBUG_OBJECT (self, "Flush finished");
 }
 
 static GstFlowReturn
@@ -974,27 +1043,23 @@ gst_omx_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
 
   GST_DEBUG_OBJECT (self, "Handling frame");
 
-  /* Make sure to keep a reference to the input here,
-   * it can be unreffed from the other thread if
-   * finish_frame() is called */
-  if (inbuf)
-    gst_buffer_ref (inbuf);
-
-  if (self->eos) {
-    GST_WARNING_OBJECT (self, "Got frame after EOS");
-    if (inbuf)
-      gst_buffer_unref (inbuf);
-    return GST_FLOW_EOS;
-  }
-
   if (self->downstream_flow_ret != GST_FLOW_OK) {
-    if (inbuf)
-      gst_buffer_unref (inbuf);
     return self->downstream_flow_ret;
   }
 
+  if (!self->started) {
+    GST_DEBUG_OBJECT (self, "Starting task");
+    gst_pad_start_task (GST_AUDIO_DECODER_SRC_PAD (self),
+        (GstTaskFunction) gst_omx_audio_dec_loop, decoder, NULL);
+  }
+
   if (inbuf == NULL)
-    return gst_omx_audio_dec_drain (self, TRUE);
+    return gst_omx_audio_dec_drain (self);
+
+  /* Make sure to keep a reference to the input here,
+   * it can be unreffed from the other thread if
+   * finish_frame() is called */
+  gst_buffer_ref (inbuf);
 
   timestamp = GST_BUFFER_TIMESTAMP (inbuf);
   duration = GST_BUFFER_DURATION (inbuf);
@@ -1164,17 +1229,17 @@ gst_omx_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
     if (err != OMX_ErrorNone)
       goto release_error;
   }
+  gst_buffer_unmap (inbuf, &minfo);
+  gst_buffer_unref (inbuf);
 
   GST_DEBUG_OBJECT (self, "Passed frame to component");
-  if (inbuf)
-    gst_buffer_unref (inbuf);
 
   return self->downstream_flow_ret;
 
 full_buffer:
   {
-    if (inbuf)
-      gst_buffer_unref (inbuf);
+    gst_buffer_unmap (inbuf, &minfo);
+    gst_buffer_unref (inbuf);
 
     GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
         ("Got OpenMAX buffer with no free space (%p, %u/%u)", buf,
@@ -1184,16 +1249,16 @@ full_buffer:
 
 flow_error:
   {
-    if (inbuf)
-      gst_buffer_unref (inbuf);
+    gst_buffer_unmap (inbuf, &minfo);
+    gst_buffer_unref (inbuf);
 
     return self->downstream_flow_ret;
   }
 
 too_large_codec_data:
   {
-    if (inbuf)
-      gst_buffer_unref (inbuf);
+    gst_buffer_unmap (inbuf, &minfo);
+    gst_buffer_unref (inbuf);
 
     GST_ELEMENT_ERROR (self, STREAM, FORMAT, (NULL),
         ("codec_data larger than supported by OpenMAX port "
@@ -1204,8 +1269,8 @@ too_large_codec_data:
 
 component_error:
   {
-    if (inbuf)
-      gst_buffer_unref (inbuf);
+    gst_buffer_unmap (inbuf, &minfo);
+    gst_buffer_unref (inbuf);
 
     GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
         ("OpenMAX component in error state %s (0x%08x)",
@@ -1216,16 +1281,16 @@ component_error:
 
 flushing:
   {
-    if (inbuf)
-      gst_buffer_unref (inbuf);
+    gst_buffer_unmap (inbuf, &minfo);
+    gst_buffer_unref (inbuf);
 
     GST_DEBUG_OBJECT (self, "Flushing -- returning FLUSHING");
     return GST_FLOW_FLUSHING;
   }
 reconfigure_error:
   {
-    if (inbuf)
-      gst_buffer_unref (inbuf);
+    gst_buffer_unmap (inbuf, &minfo);
+    gst_buffer_unref (inbuf);
 
     GST_ELEMENT_ERROR (self, LIBRARY, SETTINGS, (NULL),
         ("Unable to reconfigure input port"));
@@ -1233,8 +1298,8 @@ reconfigure_error:
   }
 release_error:
   {
-    if (inbuf)
-      gst_buffer_unref (inbuf);
+    gst_buffer_unmap (inbuf, &minfo);
+    gst_buffer_unref (inbuf);
 
     GST_ELEMENT_ERROR (self, LIBRARY, SETTINGS, (NULL),
         ("Failed to relase input buffer to component: %s (0x%08x)",
@@ -1245,7 +1310,7 @@ release_error:
 }
 
 static GstFlowReturn
-gst_omx_audio_dec_drain (GstOMXAudioDec * self, gboolean is_eos)
+gst_omx_audio_dec_drain (GstOMXAudioDec * self)
 {
   GstOMXAudioDecClass *klass;
   GstOMXBuffer *buf;
@@ -1261,14 +1326,6 @@ gst_omx_audio_dec_drain (GstOMXAudioDec * self, gboolean is_eos)
     return GST_FLOW_OK;
   }
   self->started = FALSE;
-
-  /* Don't send EOS buffer twice, this doesn't work */
-  if (self->eos) {
-    GST_DEBUG_OBJECT (self, "Component is EOS already");
-    return GST_FLOW_OK;
-  }
-  if (is_eos)
-    self->eos = TRUE;
 
   if ((klass->cdata.hacks & GST_OMX_HACK_NO_EMPTY_EOS_BUFFER)) {
     GST_WARNING_OBJECT (self, "Component does not support empty EOS buffers");
@@ -1326,6 +1383,8 @@ gst_omx_audio_dec_drain (GstOMXAudioDec * self, gboolean is_eos)
   g_mutex_unlock (&self->drain_lock);
   GST_AUDIO_DECODER_STREAM_LOCK (self);
 
+  gst_adapter_flush (self->output_adapter,
+      gst_adapter_available (self->output_adapter));
   self->started = FALSE;
 
   return GST_FLOW_OK;

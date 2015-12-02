@@ -29,7 +29,11 @@
 #include "gstomxvideo.h"
 #include "gstomxvideoenc.h"
 
-//#define CODEC_ENC_INPUT_DUMP
+#ifdef USE_OMX_TARGET_RPI
+#include <OMX_Broadcom.h>
+#include <OMX_Index.h>
+#endif
+
 GST_DEBUG_CATEGORY_STATIC (gst_omx_video_enc_debug_category);
 #define GST_CAT_DEFAULT gst_omx_video_enc_debug_category
 
@@ -89,8 +93,7 @@ static gboolean gst_omx_video_enc_propose_allocation (GstVideoEncoder * encoder,
 static GstCaps *gst_omx_video_enc_getcaps (GstVideoEncoder * encoder,
     GstCaps * filter);
 
-static GstFlowReturn gst_omx_video_enc_drain (GstOMXVideoEnc * self,
-    gboolean at_eos);
+static GstFlowReturn gst_omx_video_enc_drain (GstOMXVideoEnc * self);
 
 static GstFlowReturn gst_omx_video_enc_handle_output_frame (GstOMXVideoEnc *
     self, GstOMXPort * port, GstOMXBuffer * buf, GstVideoCodecFrame * frame);
@@ -834,9 +837,15 @@ component_error:
 flushing:
   {
     GST_DEBUG_OBJECT (self, "Flushing -- stopping task");
+    g_mutex_lock (&self->drain_lock);
+    if (self->draining) {
+      self->draining = FALSE;
+      g_cond_broadcast (&self->drain_cond);
+    }
     gst_pad_pause_task (GST_VIDEO_ENCODER_SRC_PAD (self));
     self->downstream_flow_ret = GST_FLOW_FLUSHING;
     self->started = FALSE;
+    g_mutex_unlock (&self->drain_lock);
     return;
   }
 
@@ -885,8 +894,14 @@ flow_error:
       self->started = FALSE;
     } else if (flow_ret == GST_FLOW_FLUSHING) {
       GST_DEBUG_OBJECT (self, "Flushing -- stopping task");
+      g_mutex_lock (&self->drain_lock);
+      if (self->draining) {
+        self->draining = FALSE;
+        g_cond_broadcast (&self->drain_cond);
+      }
       gst_pad_pause_task (GST_VIDEO_ENCODER_SRC_PAD (self));
       self->started = FALSE;
+      g_mutex_unlock (&self->drain_lock);
     }
     GST_VIDEO_ENCODER_STREAM_UNLOCK (self);
     return;
@@ -932,7 +947,6 @@ gst_omx_video_enc_start (GstVideoEncoder * encoder)
   self = GST_OMX_VIDEO_ENC (encoder);
 
   self->last_upstream_ts = 0;
-  self->eos = FALSE;
   self->downstream_flow_ret = GST_FLOW_OK;
 
   return TRUE;
@@ -957,7 +971,6 @@ gst_omx_video_enc_stop (GstVideoEncoder * encoder)
 
   self->downstream_flow_ret = GST_FLOW_FLUSHING;
   self->started = FALSE;
-  self->eos = FALSE;
 
   if (self->input_state)
     gst_video_codec_state_unref (self->input_state);
@@ -1001,7 +1014,7 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
    */
   if (needs_disable) {
     GST_DEBUG_OBJECT (self, "Need to disable and drain encoder");
-    gst_omx_video_enc_drain (self, FALSE);
+    gst_omx_video_enc_drain (self);
     gst_omx_port_set_flushing (self->enc_out_port, 5 * GST_SECOND, TRUE);
 
     /* Wait until the srcpad loop is finished,
@@ -1011,26 +1024,37 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
     gst_pad_stop_task (GST_VIDEO_ENCODER_SRC_PAD (encoder));
     GST_VIDEO_ENCODER_STREAM_LOCK (self);
 
-    if (gst_omx_port_set_enabled (self->enc_in_port, FALSE) != OMX_ErrorNone)
-      return FALSE;
-    if (gst_omx_port_set_enabled (self->enc_out_port, FALSE) != OMX_ErrorNone)
-      return FALSE;
-    if (gst_omx_port_wait_buffers_released (self->enc_in_port,
-            5 * GST_SECOND) != OMX_ErrorNone)
-      return FALSE;
-    if (gst_omx_port_wait_buffers_released (self->enc_out_port,
-            1 * GST_SECOND) != OMX_ErrorNone)
-      return FALSE;
-    if (gst_omx_port_deallocate_buffers (self->enc_in_port) != OMX_ErrorNone)
-      return FALSE;
-    if (gst_omx_port_deallocate_buffers (self->enc_out_port) != OMX_ErrorNone)
-      return FALSE;
-    if (gst_omx_port_wait_enabled (self->enc_in_port,
-            1 * GST_SECOND) != OMX_ErrorNone)
-      return FALSE;
-    if (gst_omx_port_wait_enabled (self->enc_out_port,
-            1 * GST_SECOND) != OMX_ErrorNone)
-      return FALSE;
+    if (klass->cdata.hacks & GST_OMX_HACK_NO_COMPONENT_RECONFIGURE) {
+      GST_VIDEO_ENCODER_STREAM_UNLOCK (self);
+      gst_omx_video_enc_stop (GST_VIDEO_ENCODER (self));
+      gst_omx_video_enc_close (GST_VIDEO_ENCODER (self));
+      GST_VIDEO_ENCODER_STREAM_LOCK (self);
+
+      if (!gst_omx_video_enc_open (GST_VIDEO_ENCODER (self)))
+        return FALSE;
+      needs_disable = FALSE;
+    } else {
+      if (gst_omx_port_set_enabled (self->enc_in_port, FALSE) != OMX_ErrorNone)
+        return FALSE;
+      if (gst_omx_port_set_enabled (self->enc_out_port, FALSE) != OMX_ErrorNone)
+        return FALSE;
+      if (gst_omx_port_wait_buffers_released (self->enc_in_port,
+              5 * GST_SECOND) != OMX_ErrorNone)
+        return FALSE;
+      if (gst_omx_port_wait_buffers_released (self->enc_out_port,
+              1 * GST_SECOND) != OMX_ErrorNone)
+        return FALSE;
+      if (gst_omx_port_deallocate_buffers (self->enc_in_port) != OMX_ErrorNone)
+        return FALSE;
+      if (gst_omx_port_deallocate_buffers (self->enc_out_port) != OMX_ErrorNone)
+        return FALSE;
+      if (gst_omx_port_wait_enabled (self->enc_in_port,
+              1 * GST_SECOND) != OMX_ErrorNone)
+        return FALSE;
+      if (gst_omx_port_wait_enabled (self->enc_out_port,
+              1 * GST_SECOND) != OMX_ErrorNone)
+        return FALSE;
+    }
 
     GST_DEBUG_OBJECT (self, "Encoder drained and disabled");
   }
@@ -1119,6 +1143,44 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
   if (gst_omx_port_update_port_definition (self->enc_in_port,
           &port_def) != OMX_ErrorNone)
     return FALSE;
+
+#ifdef USE_OMX_TARGET_RPI
+  /* aspect ratio */
+  {
+    OMX_ERRORTYPE err;
+    OMX_CONFIG_POINTTYPE aspect_ratio_param;
+
+    GST_OMX_INIT_STRUCT (&aspect_ratio_param);
+    aspect_ratio_param.nPortIndex = self->enc_out_port->index;
+
+    err = gst_omx_component_get_parameter (self->enc,
+        OMX_IndexParamBrcmPixelAspectRatio, &aspect_ratio_param);
+
+    if (err == OMX_ErrorNone) {
+
+      aspect_ratio_param.nX = info->par_n;
+      aspect_ratio_param.nY = info->par_d;
+
+      err =
+          gst_omx_component_set_parameter (self->enc,
+          OMX_IndexParamBrcmPixelAspectRatio, &aspect_ratio_param);
+
+      if (err == OMX_ErrorUnsupportedIndex) {
+        GST_WARNING_OBJECT (self,
+            "Setting aspect ratio parameters not supported by the component");
+      } else if (err == OMX_ErrorUnsupportedSetting) {
+        GST_WARNING_OBJECT (self,
+            "Setting aspect ratio %u %u not supported by the component",
+            aspect_ratio_param.nX, aspect_ratio_param.nY);
+      } else if (err != OMX_ErrorNone) {
+        GST_ERROR_OBJECT (self,
+            "Failed to set aspect ratio: %s (0x%08x)",
+            gst_omx_error_to_string (err), err);
+        return FALSE;
+      }
+    }
+  }
+#endif // USE_OMX_TARGET_RPI
 
   if (klass->set_format) {
     if (!klass->set_format (self, self->enc_in_port, state)) {
@@ -1270,7 +1332,6 @@ gst_omx_video_enc_flush (GstVideoEncoder * encoder)
 
   /* Start the srcpad loop again */
   self->last_upstream_ts = 0;
-  self->eos = FALSE;
   self->downstream_flow_ret = GST_FLOW_OK;
   gst_pad_start_task (GST_VIDEO_ENCODER_SRC_PAD (self),
       (GstTaskFunction) gst_omx_video_enc_loop, encoder, NULL);
@@ -1513,12 +1574,6 @@ gst_omx_video_enc_handle_frame (GstVideoEncoder * encoder,
 
   GST_DEBUG_OBJECT (self, "Handling frame");
 
-  if (self->eos) {
-    GST_WARNING_OBJECT (self, "Got frame after EOS");
-    gst_video_codec_frame_unref (frame);
-    return GST_FLOW_EOS;
-  }
-
   if (self->downstream_flow_ret != GST_FLOW_OK) {
     gst_video_codec_frame_unref (frame);
     return self->downstream_flow_ret;
@@ -1617,6 +1672,18 @@ gst_omx_video_enc_handle_frame (GstVideoEncoder * encoder,
     GST_DEBUG_OBJECT (self, "Handling frame");
 
     if (GST_VIDEO_CODEC_FRAME_IS_FORCE_KEYFRAME (frame)) {
+#ifdef USE_OMX_TARGET_RPI
+      OMX_CONFIG_BOOLEANTYPE config;
+
+      GST_OMX_INIT_STRUCT (&config);
+      config.bEnabled = OMX_TRUE;
+
+      GST_DEBUG_OBJECT (self, "Forcing a keyframe (iframe on the RPi)");
+
+      err =
+          gst_omx_component_set_config (self->enc,
+          OMX_IndexConfigBrcmVideoRequestIFrame, &config);
+#else
       OMX_CONFIG_INTRAREFRESHVOPTYPE config;
 
       GST_OMX_INIT_STRUCT (&config);
@@ -1627,6 +1694,7 @@ gst_omx_video_enc_handle_frame (GstVideoEncoder * encoder,
       err =
           gst_omx_component_set_config (self->enc,
           OMX_IndexConfigVideoIntraVOPRefresh, &config);
+#endif
       if (err != OMX_ErrorNone)
         GST_ERROR_OBJECT (self, "Failed to force a keyframe: %s (0x%08x)",
             gst_omx_error_to_string (err), err);
@@ -1729,11 +1797,11 @@ gst_omx_video_enc_finish (GstVideoEncoder * encoder)
 
   self = GST_OMX_VIDEO_ENC (encoder);
 
-  return gst_omx_video_enc_drain (self, TRUE);
+  return gst_omx_video_enc_drain (self);
 }
 
 static GstFlowReturn
-gst_omx_video_enc_drain (GstOMXVideoEnc * self, gboolean at_eos)
+gst_omx_video_enc_drain (GstOMXVideoEnc * self)
 {
   GstOMXVideoEncClass *klass;
   GstOMXBuffer *buf;
@@ -1749,14 +1817,6 @@ gst_omx_video_enc_drain (GstOMXVideoEnc * self, gboolean at_eos)
     return GST_FLOW_OK;
   }
   self->started = FALSE;
-
-  /* Don't send EOS buffer twice, this doesn't work */
-  if (self->eos) {
-    GST_DEBUG_OBJECT (self, "Component is EOS already");
-    return GST_FLOW_OK;
-  }
-  if (at_eos)
-    self->eos = TRUE;
 
   if ((klass->cdata.hacks & GST_OMX_HACK_NO_EMPTY_EOS_BUFFER)) {
     GST_WARNING_OBJECT (self, "Component does not support empty EOS buffers");

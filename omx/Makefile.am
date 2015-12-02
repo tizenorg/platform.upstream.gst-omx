@@ -32,6 +32,7 @@ libgstomx_la_SOURCES = \
 	gstomxaacdec.c \
 	gstomxmp3dec.c \
 	gstomxaacenc.c \
+	gstomxamrdec.c \
 	gstomxaudiosink.c \
 	gstomxanalogaudiosink.c \
 	gstomxhdmiaudiosink.c	
@@ -58,6 +59,7 @@ noinst_HEADERS = \
 	gstomxaacdec.h \
 	gstomxmp3dec.h \
 	gstomxaacenc.h \
+	gstomxamrdec.h \
 	gstomxaudiosink.h \
 	gstomxanalogaudiosink.h \
 	gstomxhdmiaudiosink.h 	
@@ -92,18 +94,3 @@ EXTRA_DIST = \
 	gstomxvp8dec.h \
 	gstomxtheoradec.c \
 	gstomxtheoradec.h
-
-Android.mk: Makefile.am $(BUILT_SOURCES)
-	androgenizer \
-	-:PROJECT libgstomx -:SHARED libgstomx \
-	 -:TAGS eng debug \
-         -:REL_TOP $(top_srcdir) -:ABS_TOP $(abs_top_srcdir) \
-	 -:SOURCES $(libgstomx_la_SOURCES) \
-	           $(nodist_libgstomx_la_SOURCES) \
-	 -:CFLAGS $(DEFS) $(DEFAULT_INCLUDES) $(libgstomx_la_CFLAGS) \
-	 -:LDFLAGS $(libgstomx_la_LDFLAGS) \
-	           $(libgstomx_la_LIBADD) \
-	           -ldl \
-	 -:PASSTHROUGH LOCAL_ARM_MODE:=arm \
-		       LOCAL_MODULE_PATH:='$$(TARGET_OUT)/lib/gstreamer-$(GST_API_VERSION)' \
-	> $@

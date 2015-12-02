@@ -42,6 +42,7 @@
 #include "gstomxaacdec.h"
 #include "gstomxmp3dec.h"
 #include "gstomxaacenc.h"
+#include "gstomxamrdec.h"
 #include "gstomxanalogaudiosink.h"
 #include "gstomxhdmiaudiosink.h"
 
@@ -831,6 +832,13 @@ gst_omx_component_set_state (GstOMXComponent * comp, OMX_STATETYPE state)
 done:
 
   gst_omx_component_handle_messages (comp);
+
+  if (err != OMX_ErrorNone && comp->last_error == OMX_ErrorNone) {
+    GST_ERROR_OBJECT (comp->parent,
+        "Last operation returned an error. Setting last_error manually.");
+    comp->last_error = err;
+  }
+
   g_mutex_unlock (&comp->lock);
 
   if (err != OMX_ErrorNone) {
@@ -1198,7 +1206,7 @@ OMX_ERRORTYPE
 gst_omx_port_update_port_definition (GstOMXPort * port,
     OMX_PARAM_PORTDEFINITIONTYPE * port_def)
 {
-  OMX_ERRORTYPE err = OMX_ErrorNone;
+  OMX_ERRORTYPE err_get, err_set = OMX_ErrorNone;
   GstOMXComponent *comp;
 
   g_return_val_if_fail (port != NULL, FALSE);
@@ -1206,16 +1214,19 @@ gst_omx_port_update_port_definition (GstOMXPort * port,
   comp = port->comp;
 
   if (port_def)
-    err =
+    err_set =
         gst_omx_component_set_parameter (comp, OMX_IndexParamPortDefinition,
         port_def);
-  gst_omx_component_get_parameter (comp, OMX_IndexParamPortDefinition,
+  err_get = gst_omx_component_get_parameter (comp, OMX_IndexParamPortDefinition,
       &port->port_def);
 
   GST_DEBUG_OBJECT (comp->parent, "Updated %s port %u definition: %s (0x%08x)",
-      comp->name, port->index, gst_omx_error_to_string (err), err);
+      comp->name, port->index, gst_omx_error_to_string (err_set), err_set);
 
-  return err;
+  if (err_set != OMX_ErrorNone)
+    return err_set;
+  else
+    return err_get;
 }
 
 /* NOTE: Uses comp->lock and comp->messages_lock */
@@ -1327,25 +1338,19 @@ retry:
    * arrives, an error happens, the port is flushing
    * or the port needs to be reconfigured.
    */
-  gst_omx_component_handle_messages (comp);
   if (g_queue_is_empty (&port->pending_buffers)) {
     GST_DEBUG_OBJECT (comp->parent, "Queue of %s port %u is empty",
         comp->name, port->index);
     gst_omx_component_wait_message (comp, GST_CLOCK_TIME_NONE);
-    gst_omx_component_handle_messages (comp);
 
     /* And now check everything again and maybe get a buffer */
     goto retry;
-  } else {
-    GST_DEBUG_OBJECT (comp->parent, "%s port %u has pending buffers",
-        comp->name, port->index);
-    _buf = g_queue_pop_head (&port->pending_buffers);
-    ret = GST_OMX_ACQUIRE_BUFFER_OK;
-    goto done;
   }
 
-  g_assert_not_reached ();
-  goto retry;
+  GST_DEBUG_OBJECT (comp->parent, "%s port %u has pending buffers",
+      comp->name, port->index);
+  _buf = g_queue_pop_head (&port->pending_buffers);
+  ret = GST_OMX_ACQUIRE_BUFFER_OK;
 
 done:
   g_mutex_unlock (&comp->lock);
@@ -2439,7 +2444,8 @@ static const GGetTypeFunction types[] = {
   gst_omx_wmv_dec_get_type, gst_omx_mpeg4_video_enc_get_type,
   gst_omx_h264_enc_get_type, gst_omx_h263_enc_get_type,
   gst_omx_aac_enc_get_type, gst_omx_mjpeg_dec_get_type,
-  gst_omx_aac_dec_get_type, gst_omx_mp3_dec_get_type
+  gst_omx_aac_dec_get_type, gst_omx_mp3_dec_get_type,
+  gst_omx_amr_dec_get_type
 #ifdef HAVE_VP8
       , gst_omx_vp8_dec_get_type
 #endif
@@ -2958,6 +2964,7 @@ _class_init (gpointer g_class, gpointer data)
 #endif
 
     class_data->hacks = gst_omx_parse_hacks (hacks);
+    g_strfreev (hacks);
   }
 }
 
