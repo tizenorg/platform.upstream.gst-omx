@@ -415,6 +415,13 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
         stride[1] = nstride;
         offset[1] = offset[0] + stride[0] * nslice;
         break;
+      case GST_VIDEO_FORMAT_SN12:
+      case GST_VIDEO_FORMAT_ST12:
+        offset[0] = 0;
+        stride[0] = pool->port->port_def.format.video.nStride;
+        offset[1] = stride[0] * pool->port->port_def.format.video.nSliceHeight;
+        stride[1] = pool->port->port_def.format.video.nStride;
+        break;
       default:
         g_assert_not_reached ();
         break;
@@ -440,7 +447,7 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
         }
       }
 
-      pool->need_copy = need_copy;
+      /*pool->need_copy = need_copy;*/
     }
 
     if (pool->need_copy || pool->add_videometa) {

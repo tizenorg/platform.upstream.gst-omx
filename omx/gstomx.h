@@ -49,6 +49,12 @@
 #include <OMX_Core.h>
 #include <OMX_Component.h>
 
+#ifdef USE_OMX_TARGET_EXYNOS
+#include <tbm_type.h>
+#include <tbm_surface.h>
+#include <tbm_bufmgr.h>
+#endif
+
 #ifdef USE_OMX_TARGET_RPI
 #include <OMX_Broadcom.h>
 #endif
@@ -128,59 +134,7 @@ typedef struct _GstOMXMessage GstOMXMessage;
 /* MODIFICATION */
 typedef enum GOmxVendor GOmxVendor; /* check omx vender */
 
-/* using common scmn_imgb format */
-#define SCMN_IMGB_MAX_PLANE         (4) /* max channel count */
-
-/* image buffer definition
-    +------------------------------------------+ ---
-    |                                          |  ^
-    |     a[], p[]                             |  |
-    |     +---------------------------+ ---    |  |
-    |     |                           |  ^     |  |
-    |     |<---------- w[] ---------->|  |     |  |
-    |     |                           |  |     |  |
-    |     |                           |        |
-    |     |                           |  h[]   |  e[]
-    |     |                           |        |
-    |     |                           |  |     |  |
-    |     |                           |  |     |  |
-    |     |                           |  v     |  |
-    |     +---------------------------+ ---    |  |
-    |                                          |  v
-    +------------------------------------------+ ---
-
-    |<----------------- s[] ------------------>|
-*/
-
-typedef struct
-{
-    int      w[SCMN_IMGB_MAX_PLANE];    /* width of each image plane */
-    int      h[SCMN_IMGB_MAX_PLANE];    /* height of each image plane */
-    int      s[SCMN_IMGB_MAX_PLANE];    /* stride of each image plane */
-    int      e[SCMN_IMGB_MAX_PLANE];    /* elevation of each image plane */
-    void   * a[SCMN_IMGB_MAX_PLANE];    /* user space address of each image plane */
-    void   * p[SCMN_IMGB_MAX_PLANE];    /* physical address of each image plane, if needs */
-    int      cs;    /* color space type of image */
-    int      x;    /* left postion, if needs */
-    int      y;    /* top position, if needs */
-    int      __dummy2;    /* to align memory */
-    int      data[16];    /* arbitrary data */
-
-    int fd[SCMN_IMGB_MAX_PLANE];    /* DMABUF fd of each image plane */
-    int buf_share_method;
-
-    int y_size;                         /* Y plane size in case of ST12 */
-    int uv_size;                        /* UV plane size in case of ST12 */
-    //void *bo[SCMN_IMGB_MAX_PLANE];      /* Tizen buffer object of each image plane */
-    tbm_bo bo[SCMN_IMGB_MAX_PLANE];
-
-    void *jpeg_data;                    /* JPEG data */
-    int jpeg_size;                      /* JPEG size */
-
-    int tz_enable;                      /* tzmem buffer */
-} SCMN_IMGB;
-
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
 
 #define MFC_INPUT_BUFFER_PLANE      1
 #define MFC_OUTPUT_BUFFER_PLANE     2
@@ -209,11 +163,7 @@ struct _TBMInputBuffer
 
 struct _TBMOutputBuffer
 {
-#ifdef USE_MM_VIDEO_BUFFER
     MMVideoBuffer *tbmBuffer[MAX_OUTPUT_BUFFER];
-#else
-    SCMN_IMGB *tbmBuffer[MAX_OUTPUT_BUFFER];
-#endif
     OMX_U32 allocatedCount;
     GList *buffers;
 };
@@ -248,7 +198,7 @@ enum {
     OMX_EXT_COLOR_FormatNV12LFdValue = 0x7F000013
 };
 
-#ifdef USE_TBM
+#ifdef GST_TIZEN_MODIFICATION
 /* Extended port settings. */
 enum {
     OMX_IndexParamEnablePlatformSpecificBuffers = 0x7F000011
@@ -420,14 +370,9 @@ struct _GstOMXBuffer {
   /* TRUE if this is an EGLImage */
   gboolean eglimage;
 
-#ifdef USE_TBM
-#ifdef USE_MM_VIDEO_BUFFER
+#ifdef GST_TIZEN_MODIFICATION
   /* MMVideoBuffer array to use TBM buffers */
-   MMVideoBuffer *scmn_buffer;
-#else
-  /* SCMN_IMGB array to use TBM buffers */
-  SCMN_IMGB *scmn_buffer;
-#endif
+   MMVideoBuffer *mm_vbuffer;
 #endif
 };
 
@@ -490,9 +435,9 @@ OMX_ERRORTYPE     gst_omx_port_set_flushing (GstOMXPort *port, GstClockTime time
 gboolean          gst_omx_port_is_flushing (GstOMXPort *port);
 
 OMX_ERRORTYPE     gst_omx_port_allocate_buffers (GstOMXPort *port);
-#ifdef USE_TBM
-OMX_ERRORTYPE     gst_omx_port_tbm_allocate_dec_buffers (tbm_bufmgr  bufMgr, GstOMXPort * port, int eCompressionFormat);
-OMX_ERRORTYPE     gst_omx_port_tbm_allocate_enc_buffers (tbm_bufmgr  bufMgr, GstOMXPort * port, int eCompressionFormat);
+#ifdef GST_TIZEN_MODIFICATION
+OMX_ERRORTYPE     gst_omx_port_tbm_allocate_dec_buffers (GstOMXPort * port, tbm_bufmgr  bufMgr, int eCompressionFormat);
+OMX_ERRORTYPE     gst_omx_port_tbm_allocate_enc_buffers (GstOMXPort * port, tbm_bufmgr  bufMgr, int eCompressionFormat);
 #endif
 OMX_ERRORTYPE     gst_omx_port_use_buffers (GstOMXPort *port, const GList *buffers);
 OMX_ERRORTYPE     gst_omx_port_use_eglimages (GstOMXPort *port, const GList *images);
@@ -509,6 +454,50 @@ gboolean          gst_omx_port_is_enabled (GstOMXPort * port);
 
 void              gst_omx_set_default_role (GstOMXClassData *class_data, const gchar *default_role);
 
+#ifdef GST_TIZEN_MODIFICATION
+
+/*MFC Buffer alignment macros*/
+#define S5P_FIMV_DEC_BUF_ALIGN                  (8 * 1024)
+#define S5P_FIMV_ENC_BUF_ALIGN                  (8 * 1024)
+#define S5P_FIMV_NV12M_HALIGN                   16
+#define S5P_FIMV_NV12M_LVALIGN                  16
+#define S5P_FIMV_NV12M_CVALIGN                  8
+#define S5P_FIMV_NV12MT_HALIGN                  128
+#define S5P_FIMV_NV12MT_VALIGN                  64
+#define S5P_FIMV_NV12M_SALIGN                   2048
+#define S5P_FIMV_NV12MT_SALIGN                  8192
+
+#define ALIGN(x, a)       (((x) + (a) - 1) & ~((a) - 1))
+
+/* Buffer alignment defines */
+#define SZ_1M                                   0x00100000
+#define S5P_FIMV_D_ALIGN_PLANE_SIZE             64
+
+#define S5P_FIMV_MAX_FRAME_SIZE                 (2 * SZ_1M)
+#define S5P_FIMV_NUM_PIXELS_IN_MB_ROW           16
+#define S5P_FIMV_NUM_PIXELS_IN_MB_COL           16
+
+/* Macro */
+#define ALIGN_TO_4KB(x)   ((((x) + (1 << 12) - 1) >> 12) << 12)
+#define DIV_ROUND_UP(n,d) (((n) + (d) - 1) / (d))
+#define CHOOSE_MAX_SIZE(a,b) ((a) > (b) ? (a) : (b))
+
+int new_calc_plane(int width, int height);
+int new_calc_yplane(int width, int height);
+int new_calc_uvplane(int width, int height);
+
+int calc_plane(int width, int height);
+int calc_yplane(int width, int height);
+int calc_uvplane(int width, int height);
+int gst_omx_calculate_y_size(int compressionFormat, int width, int height);
+int gst_omx_calculate_uv_size(int compressionFormat, int width, int height);
+
+tbm_bo            gst_omx_tbm_allocate_bo(tbm_bufmgr hBufmgr, int size);
+void              gst_omx_tbm_deallocate_bo(tbm_bo bo);
+OMX_U32           gst_omx_tbm_get_bo_fd(tbm_bo bo);
+OMX_PTR           gst_omx_tbm_get_bo_ptr(tbm_bo bo);
+
+#endif
 /* refered by plugin_init */
 GST_DEBUG_CATEGORY_EXTERN (gst_omx_video_debug_category);
 

@@ -75,6 +75,11 @@ gst_omx_video_get_format_from_omx (OMX_COLOR_FORMATTYPE omx_colorformat)
     case OMX_COLOR_Format16bitBGR565:
       format = GST_VIDEO_FORMAT_BGR16;
       break;
+#ifdef GST_TIZEN_MODIFICATION
+    case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
+      format = GST_VIDEO_FORMAT_SN12;
+      break;
+#endif
     default:
       format = GST_VIDEO_FORMAT_UNKNOWN;
       break;
@@ -125,12 +130,12 @@ gst_omx_video_get_supported_colorformats (GstOMXPort * port,
         m->type = param.eColorFormat;
         negotiation_map = g_list_append (negotiation_map, m);
         GST_DEBUG_OBJECT (comp->parent,
-            "Component supports %s (%d) at index %u",
+            "Component supports %s (%x) at index %u",
             gst_video_format_to_string (f), param.eColorFormat,
             (guint) param.nIndex);
       } else {
         GST_DEBUG_OBJECT (comp->parent,
-            "Component supports unsupported color format %d at index %u",
+            "Component supports unsupported color format %x at index %u",
             param.eColorFormat, (guint) param.nIndex);
       }
     }

@@ -91,6 +91,10 @@ struct _GstOMXVideoDec
   gboolean draining;
 
   GstFlowReturn downstream_flow_ret;
+#ifdef GST_TIZEN_MODIFICATION
+  gint drm_fd;
+  tbm_bufmgr hTBMBufMgr;
+#endif
 #ifdef USE_OMX_TARGET_RPI
   GstOMXComponent *egl_render;
   GstOMXPort *egl_in_port, *egl_out_port;

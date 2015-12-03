@@ -76,7 +76,10 @@ libgstomx_la_CFLAGS = \
 	$(GST_PLUGINS_BASE_CFLAGS) \
 	$(GST_BASE_CFLAGS) \
 	$(GST_CFLAGS) \
-	$(GMODULE_NO_EXPORT_CFLAGS)
+	$(TBM_CFLAGS) \
+	$(GMODULE_NO_EXPORT_CFLAGS) \
+        $(MM_COMMON_CFLAGS)
+
 libgstomx_la_LIBADD = \
 	$(GST_GL_LIBS) \
 	$(GST_PLUGINS_BASE_LIBS) \
@@ -85,8 +88,13 @@ libgstomx_la_LIBADD = \
 	-lgstvideo-@GST_API_VERSION@ \
 	$(GST_BASE_LIBS) \
 	$(GST_LIBS) \
-	$(GMODULE_NO_EXPORT_LIBS)
-libgstomx_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
+	$(TBM_LIBS) \
+	$(GMODULE_NO_EXPORT_LIBS) \
+	$(MM_COMMON_LIBS)
+libgstomx_la_LDFLAGS = \
+	$(GST_PLUGIN_LDFLAGS) \
+	$(TBM_LDFLAGS) \
+	$(MM_COMMON_LDFLAGS)
 
 EXTRA_DIST = \
 	openmax \
