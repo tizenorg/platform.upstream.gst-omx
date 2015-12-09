@@ -49,7 +49,7 @@
 #include <OMX_Core.h>
 #include <OMX_Component.h>
 
-#ifdef USE_OMX_TARGET_EXYNOS
+#ifdef GST_TIZEN_MODIFICATION
 #include <tbm_type.h>
 #include <tbm_surface.h>
 #include <tbm_bufmgr.h>
