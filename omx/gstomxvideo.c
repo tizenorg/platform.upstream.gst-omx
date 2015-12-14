@@ -76,8 +76,11 @@ gst_omx_video_get_format_from_omx (OMX_COLOR_FORMATTYPE omx_colorformat)
       format = GST_VIDEO_FORMAT_BGR16;
       break;
 #ifdef GST_TIZEN_MODIFICATION
-    case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
+    case OMX_EXT_COLOR_FormatNV12LPhysicalAddress:
       format = GST_VIDEO_FORMAT_SN12;
+      break;
+    case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
+      format = GST_VIDEO_FORMAT_ST12;
       break;
 #endif
     default:

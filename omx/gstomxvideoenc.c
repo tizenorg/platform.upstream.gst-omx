@@ -34,6 +34,7 @@
 #include <OMX_Index.h>
 #endif
 
+//#define CODEC_ENC_INPUT_DUMP
 GST_DEBUG_CATEGORY_STATIC (gst_omx_video_enc_debug_category);
 #define GST_CAT_DEFAULT gst_omx_video_enc_debug_category
 
@@ -226,7 +227,7 @@ gst_omx_video_enc_input_dump (MMVideoBuffer *inbuf)
 
   GST_WARNING ("codec enc input dump start. w = %d, h = %d", inbuf->width[0], inbuf->height[0]);
 
-  sprintf(filename, "/opt/usr/media/Videos/enc_input_dump_%d_%d.yuv", inbuf->width[0], inbuf->height[0]);
+  sprintf(filename, "/tmp/enc_input_dump_%d_%d.yuv", inbuf->width[0], inbuf->height[0]);
   fp = fopen(filename, "ab");
 
   for (i = 0; i < inbuf->height[0]; i++) {
@@ -234,7 +235,7 @@ gst_omx_video_enc_input_dump (MMVideoBuffer *inbuf)
       temp += inbuf->stride_width[0];
   }
 
-  temp = (char*)inbuf->data[0] + inbuf->stride_width[0] * inbuf->stride_height[0];
+  temp = (char*)inbuf->data[1];
 
   for(i = 0; i < inbuf->height[1] ; i++) {
       fwrite(temp, inbuf->width[1], 1, fp);
@@ -1071,6 +1072,9 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
       case GST_VIDEO_FORMAT_NV12:
         port_def.format.video.eColorFormat = OMX_COLOR_FormatYUV420SemiPlanar;
         break;
+      case GST_VIDEO_FORMAT_SN12:
+        port_def.format.video.eColorFormat = OMX_EXT_COLOR_FormatNV12LPhysicalAddress;
+        break;
       default:
         GST_ERROR_OBJECT (self, "Unsupported format %s",
             gst_video_format_to_string (info->finfo->format));
@@ -1507,7 +1511,7 @@ gst_omx_video_enc_fill_buffer (GstOMXVideoEnc * self, GstBuffer * inbuf,
     case GST_VIDEO_FORMAT_SN12:{
         GstMemory* ext_memory = gst_buffer_peek_memory(inbuf, 1);
         GstMapInfo ext_info =  GST_MAP_INFO_INIT;
-        MMVideoBuffer *ext_buf = NULL;
+        MMVideoBuffer *mm_vbuffer = NULL;
 
         if (!ext_memory) {
           GST_WARNING_OBJECT (self, "null MMVideoBuffer pointer  in hw color format. skip this.");
@@ -1515,29 +1519,36 @@ gst_omx_video_enc_fill_buffer (GstOMXVideoEnc * self, GstBuffer * inbuf,
         }
 
         gst_memory_map(ext_memory, &ext_info, GST_MAP_READ);
-        ext_buf = (MMVideoBuffer*)ext_info.data;
+        mm_vbuffer = (MMVideoBuffer*)ext_info.data;
         gst_memory_unmap(ext_memory, &ext_info);
 
-        if (ext_buf != NULL && ext_buf->type == MM_VIDEO_BUFFER_TYPE_TBM_BO) {
+        if (mm_vbuffer != NULL && mm_vbuffer->type == MM_VIDEO_BUFFER_TYPE_TBM_BO) {
 
-          if (ext_buf->handle.dmabuf_fd[0] == NULL)
-            gst_omx_tbm_get_bo_fd(ext_buf->handle.bo[0]);
+          if (mm_vbuffer->handle.dmabuf_fd[0] == 0)
+            mm_vbuffer->handle.dmabuf_fd[0] = gst_omx_tbm_get_bo_fd(mm_vbuffer->handle.bo[0]);
 
-          if (ext_buf->handle.dmabuf_fd[1] == NULL)
-            gst_omx_tbm_get_bo_fd(ext_buf->handle.bo[1]);
+          if (mm_vbuffer->handle.dmabuf_fd[1] == 0)
+            mm_vbuffer->handle.dmabuf_fd[1] = gst_omx_tbm_get_bo_fd(mm_vbuffer->handle.bo[1]);
 
-          GST_LOG_OBJECT (self, "enc. fd[0]:%d  fd[1]:%d  fd[2]:%d  w[0]:%d  h[0]:%d   buf_share_method:%d",
-              ext_buf->handle.dmabuf_fd[0], ext_buf->handle.dmabuf_fd[1], ext_buf->handle.dmabuf_fd[2], ext_buf->width[0], ext_buf->height[0], ext_buf->type);
+          if (mm_vbuffer->data[0] == NULL)
+              mm_vbuffer->data[0] = gst_omx_tbm_get_bo_ptr(mm_vbuffer->handle.bo[0]);
+
+          if (mm_vbuffer->data[1] == NULL)
+              mm_vbuffer->data[1] = gst_omx_tbm_get_bo_ptr(mm_vbuffer->handle.bo[1]);
+
+          GST_LOG_OBJECT (self, "enc. fd[0]:%d  fd[1]:%d  a[0]:%p, a[1]:%p, w[0]:%d  h[0]:%d   %d, %d, buf_share_method:%d",
+              mm_vbuffer->handle.dmabuf_fd[0], mm_vbuffer->handle.dmabuf_fd[1], mm_vbuffer->data[0], mm_vbuffer->data[1],
+              mm_vbuffer->width[0], mm_vbuffer->height[0], mm_vbuffer->width[1], mm_vbuffer->height[1], mm_vbuffer->type);
         } else {
-          GST_WARNING_OBJECT (self, "enc input buf has wrong buf_share_method[%d]", ext_buf->type);
+          GST_WARNING_OBJECT (self, "enc input buf has wrong buf_share_method[%d]", mm_vbuffer->type);
         }
 
         outbuf->omx_buf->nAllocLen = sizeof(MMVideoBuffer);
         outbuf->omx_buf->nFilledLen = sizeof(MMVideoBuffer);
-        memcpy (outbuf->omx_buf->pBuffer, ext_buf, sizeof(MMVideoBuffer));
+        memcpy (outbuf->omx_buf->pBuffer, mm_vbuffer, sizeof(MMVideoBuffer));
 
 #ifdef CODEC_ENC_INPUT_DUMP
-        gst_omx_video_enc_input_dump(ext_buf);
+        gst_omx_video_enc_input_dump(mm_vbuffer);
 #endif
 
         ret = TRUE;
