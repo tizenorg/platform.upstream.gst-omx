@@ -12,6 +12,11 @@ BuildRequires:  pkgconfig(gstreamer-1.0)
 BuildRequires:  pkgconfig(gstreamer-plugins-base-1.0)
 BuildRequires: pkgconfig(libtbm)
 BuildRequires: pkgconfig(mm-common)
+BuildRequires: model-build-features
+
+%if "%{model_build_feature_formfactor}" == "circle"
+ExcludeArch: %{arm}
+%endif
 
 %description
 gst-openmax is a GStreamer plug-in that allows communication with OpenMAX IL components.
