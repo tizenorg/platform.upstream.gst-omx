@@ -1,8 +1,9 @@
 Name:           gst-omx
 Summary:        GStreamer plug-in that allows communication with OpenMAX IL components
 Version:        1.2.0
-Release:        0
+Release:        1
 License:        LGPL-2.1+
+ExclusiveArch: %arm
 Group:          Multimedia/Framework
 Source0:        %{name}-%{version}.tar.gz
 Source100:      common.tar.bz2
