@@ -3,7 +3,6 @@ Summary:        GStreamer plug-in that allows communication with OpenMAX IL comp
 Version:        1.2.0
 Release:        1
 License:        LGPL-2.1+
-ExclusiveArch: %arm
 Group:          Multimedia/Framework
 Source0:        %{name}-%{version}.tar.gz
 Source100:      common.tar.bz2
@@ -15,8 +14,8 @@ BuildRequires: pkgconfig(libtbm)
 BuildRequires: pkgconfig(mm-common)
 BuildRequires: model-build-features
 
-%if "%{model_build_feature_formfactor}" == "circle"
-ExcludeArch: %{arm}
+%if "%profile" == "wearable"
+ExclusiveArch:
 %endif
 
 %description
