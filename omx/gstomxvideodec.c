@@ -132,7 +132,12 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
 #endif
       "video/x-raw, "
       "width = " GST_VIDEO_SIZE_RANGE ", "
-      "height = " GST_VIDEO_SIZE_RANGE ", " "framerate = " GST_VIDEO_FPS_RANGE;
+	  "height = " GST_VIDEO_SIZE_RANGE ", " "framerate = " GST_VIDEO_FPS_RANGE ", "
+#ifdef EXYNOS_SPECIFIC
+      "format = ST12";
+#else
+      "format = SN12";
+#endif
 }
 
 static void

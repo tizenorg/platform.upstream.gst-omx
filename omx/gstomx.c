@@ -1763,7 +1763,7 @@ gst_omx_port_tbm_allocate_dec_buffers (GstOMXPort * port, tbm_bufmgr bufMgr, int
           ptr->handle.dmabuf_fd[1] = gst_omx_tbm_get_bo_fd(ptr->handle.bo[1]);
           ptr->data[1] = gst_omx_tbm_get_bo_ptr(ptr->handle.bo[1]);
           ptr->size[1] = uv_size;
-          ptr->type = MM_VIDEO_BUFFER_TYPE_DMABUF_FD;
+          ptr->type = MM_VIDEO_BUFFER_TYPE_TBM_BO;
           ptr->plane_num = 2;
           GST_INFO_OBJECT (comp->parent,
                   "Allocating %d buffer bo[0]:%p bo[1]:%p fd[0]:%d fd[1]:%d size[0]:%d size[1]:%d for %s port %u", i,

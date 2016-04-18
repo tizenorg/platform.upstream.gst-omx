@@ -1,7 +1,7 @@
 Name:           gst-omx
 Summary:        GStreamer plug-in that allows communication with OpenMAX IL components
 Version:        1.2.0
-Release:        1
+Release:        2
 License:        LGPL-2.1+
 Group:          Multimedia/Framework
 Source0:        %{name}-%{version}.tar.gz
@@ -13,10 +13,6 @@ BuildRequires:  pkgconfig(gstreamer-plugins-base-1.0)
 BuildRequires: pkgconfig(libtbm)
 BuildRequires: pkgconfig(mm-common)
 BuildRequires: model-build-features
-
-%if "%profile" == "wearable"
-ExclusiveArch:
-%endif
 
 %description
 gst-openmax is a GStreamer plug-in that allows communication with OpenMAX IL components.
@@ -30,8 +26,10 @@ cp %{SOURCE1001} .
 %build
 ./autogen.sh --noconfigure
 
-export CFLAGS+=" -DEXYNOS_SPECIFIC"
 export CFLAGS+=" -DGST_TIZEN_MODIFICATION"
+%if "%profile" == "wearable"
+export CFLAGS+=" -DEXYNOS_SPECIFIC"
+%endif
 
 %ifarch aarch64
 %configure --disable-static --prefix=/usr --with-omx-target=exynos64
