@@ -14,6 +14,10 @@ BuildRequires: pkgconfig(libtbm)
 BuildRequires: pkgconfig(mm-common)
 BuildRequires: model-build-features
 
+%if "%{tizen_target_name}" == "TM1"
+ExclusiveArch:
+%endif
+
 %description
 gst-openmax is a GStreamer plug-in that allows communication with OpenMAX IL components.
 Multiple OpenMAX IL implementations can be used.
