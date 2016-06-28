@@ -1871,6 +1871,7 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
   gchar *format_tmp;
   int i;
   EnableGemBuffersParams gemBuffers;
+  EnableGemBuffersParams config;
 #endif
 
   GST_DEBUG_OBJECT (self, "Trying to negotiate a video format with downstream");
@@ -1970,14 +1971,29 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
 
     /* Set platform specific buffer settings. to avoid plane support error.. */
 #ifdef GST_TIZEN_MODIFICATION
-    OMX_INIT_STRUCTURE(gemBuffers);
-    gemBuffers.enable = OMX_TRUE;
-    gemBuffers.nPortIndex = 1;
-      err =
+  OMX_INIT_STRUCTURE(gemBuffers);
+  gemBuffers.enable = OMX_TRUE;
+  gemBuffers.nPortIndex = 1;
+
+  err =
       gst_omx_component_set_parameter (self->dec,
       OMX_IndexParamEnablePlatformSpecificBuffers,&gemBuffers);
+
   if (err != OMX_ErrorNone) {
     GST_ERROR_OBJECT (self, "Failed to set video port format: %s (0x%08x)",
+        gst_omx_error_to_string (err), err);
+  }
+
+  OMX_INIT_STRUCTURE(config);
+  config.enable = OMX_TRUE;
+  config.nPortIndex = 0;
+
+  err =
+      gst_omx_component_set_parameter (self->dec,
+      OMX_IndexParamEnableTimestampReorder, &config);
+
+  if (err != OMX_ErrorNone) {
+    GST_ERROR_OBJECT (self, "Failed to set timestamp reorder: %s (0x%08x)",
         gst_omx_error_to_string (err), err);
   }
 #endif

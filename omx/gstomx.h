@@ -183,36 +183,42 @@ struct _EnableGemBuffersParams
 
 enum
 {
-    BUF_SHARE_METHOD_PADDR = 0,
-    BUF_SHARE_METHOD_FD = 1,
-    BUF_SHARE_METHOD_TIZEN_BUFFER = 2,
-    BUF_SHARE_METHOD_FLUSH_BUFFER = 3,
+  BUF_SHARE_METHOD_PADDR = 0,
+  BUF_SHARE_METHOD_FD = 1,
+  BUF_SHARE_METHOD_TIZEN_BUFFER = 2,
+  BUF_SHARE_METHOD_FLUSH_BUFFER = 3,
 }; /* buf_share_method */
 
 /* Extended color formats */
 enum {
-    OMX_EXT_COLOR_FormatNV12TPhysicalAddress = 0x7F000001, /**< Reserved region for introducing Vendor Extensions */
-    OMX_EXT_COLOR_FormatNV12LPhysicalAddress = 0x7F000002,
-    OMX_EXT_COLOR_FormatNV12Tiled = 0x7FC00002,
-    OMX_EXT_COLOR_FormatNV12TFdValue = 0x7F000012,
-    OMX_EXT_COLOR_FormatNV12LFdValue = 0x7F000013
+  OMX_EXT_COLOR_FormatNV12TPhysicalAddress = 0x7F000001, /**< Reserved region for introducing Vendor Extensions */
+  OMX_EXT_COLOR_FormatNV12LPhysicalAddress = 0x7F000002,
+  OMX_EXT_COLOR_FormatNV12Tiled = 0x7FC00002,
+  OMX_EXT_COLOR_FormatNV12TFdValue = 0x7F000012,
+  OMX_EXT_COLOR_FormatNV12LFdValue = 0x7F000013
 };
 
 #ifdef GST_TIZEN_MODIFICATION
 /* Extended port settings. */
 enum {
-    OMX_IndexParamEnablePlatformSpecificBuffers = 0x7F000011
+  OMX_IndexParamEnablePlatformSpecificBuffers = 0x7F000011,
+  OMX_IndexParamGetAndroidNativeBuffer = 0x7F000012,
+  OMX_IndexParamUseAndroidNativeBuffer = 0x7F000013,
+  OMX_IndexParamStoreMetaDataBuffer = 0x7F000014,
+  OMX_IndexParamPrependSPSPPSToIDR = 0x7F000015,
+  OMX_IndexParamEnableTimestampReorder = 0x7F000016,
+  OMX_IndexParamSharedOutputFD = 0x7F000017
 };
 #endif
 
 /* modification: Add_component_vendor */
 enum GOmxVendor
 {
-    GOMX_VENDOR_DEFAULT,
-    GOMX_VENDOR_SLSI_SEC,
-    GOMX_VENDOR_SLSI_EXYNOS,
-    GOMX_VENDOR_QCT,
-    GOMX_VENDOR_SPRD
+  GOMX_VENDOR_DEFAULT,
+  GOMX_VENDOR_SLSI_SEC,
+  GOMX_VENDOR_SLSI_EXYNOS,
+  GOMX_VENDOR_QCT,
+  GOMX_VENDOR_SPRD
 };
 
 typedef enum {
