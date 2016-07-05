@@ -210,7 +210,7 @@ gst_omx_video_enc_init (GstOMXVideoEnc * self)
 
   g_mutex_init (&self->drain_lock);
   g_cond_init (&self->drain_cond);
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
   self->hTBMBufMgr = NULL;
   self->drm_fd = -1;
 #endif
@@ -390,7 +390,7 @@ gst_omx_video_enc_open (GstVideoEncoder * encoder)
       }
     }
   }
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
    self->hTBMBufMgr = tbm_bufmgr_init(self->drm_fd);
    if(self->hTBMBufMgr == NULL){
     GST_ERROR_OBJECT (self, "TBM initialization failed.");
@@ -756,7 +756,7 @@ gst_omx_video_enc_loop (GstOMXVideoEnc * self)
       err = gst_omx_port_set_enabled (port, TRUE);
       if (err != OMX_ErrorNone)
         goto reconfigure_error;
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
     err = gst_omx_port_tbm_allocate_enc_buffers(port, self->hTBMBufMgr,
         self->enc_in_port->port_def.format.video.eCompressionFormat);
 #else
@@ -1123,7 +1123,7 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
 
     case OMX_EXT_COLOR_FormatNV12LPhysicalAddress: /* FALL THROUGH */
     case OMX_EXT_COLOR_FormatNV12TPhysicalAddress:
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
         port_def.nBufferSize = sizeof(MMVideoBuffer);
 #endif
         break;
@@ -1215,7 +1215,7 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
   if (needs_disable) {
     if (gst_omx_port_set_enabled (self->enc_in_port, TRUE) != OMX_ErrorNone)
       return FALSE;
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
     if(gst_omx_port_tbm_allocate_enc_buffers(self->enc_in_port, self->hTBMBufMgr,
         self->enc_in_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
         return FALSE;
@@ -1263,7 +1263,7 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
         return FALSE;
 
       /* Need to allocate buffers to reach Idle state */
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
     if(gst_omx_port_tbm_allocate_enc_buffers(self->enc_in_port, self->hTBMBufMgr,
         self->enc_in_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
         return FALSE;
@@ -1272,7 +1272,7 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
         return FALSE;
 #endif
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
     if(gst_omx_port_tbm_allocate_enc_buffers(self->enc_out_port, self->hTBMBufMgr,
         self->enc_out_port->port_def.format.video.eCompressionFormat) != OMX_ErrorNone)
 #else
@@ -1634,7 +1634,7 @@ gst_omx_video_enc_handle_frame (GstVideoEncoder * encoder,
         GST_VIDEO_ENCODER_STREAM_LOCK (self);
         goto reconfigure_error;
       }
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
     err = gst_omx_port_tbm_allocate_enc_buffers(port, self->hTBMBufMgr,
         self->enc_in_port->port_def.format.video.eCompressionFormat);
 #else

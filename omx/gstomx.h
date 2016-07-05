@@ -49,7 +49,7 @@
 #include <OMX_Core.h>
 #include <OMX_Component.h>
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
 #include <tbm_type.h>
 #include <tbm_surface.h>
 #include <tbm_bufmgr.h>
@@ -134,7 +134,7 @@ typedef struct _GstOMXMessage GstOMXMessage;
 /* MODIFICATION */
 typedef enum GOmxVendor GOmxVendor; /* check omx vender */
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
 
 #define MFC_INPUT_BUFFER_PLANE      1
 #define MFC_OUTPUT_BUFFER_PLANE     2
@@ -198,7 +198,7 @@ enum {
   OMX_EXT_COLOR_FormatNV12LFdValue = 0x7F000013
 };
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
 /* Extended port settings. */
 enum {
   OMX_IndexParamEnablePlatformSpecificBuffers = 0x7F000011,
@@ -376,7 +376,7 @@ struct _GstOMXBuffer {
   /* TRUE if this is an EGLImage */
   gboolean eglimage;
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
   /* MMVideoBuffer array to use TBM buffers */
    MMVideoBuffer *mm_vbuffer;
 #endif
@@ -441,7 +441,7 @@ OMX_ERRORTYPE     gst_omx_port_set_flushing (GstOMXPort *port, GstClockTime time
 gboolean          gst_omx_port_is_flushing (GstOMXPort *port);
 
 OMX_ERRORTYPE     gst_omx_port_allocate_buffers (GstOMXPort *port);
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
 OMX_ERRORTYPE     gst_omx_port_tbm_allocate_dec_buffers (GstOMXPort * port, tbm_bufmgr  bufMgr, int eCompressionFormat);
 OMX_ERRORTYPE     gst_omx_port_tbm_allocate_enc_buffers (GstOMXPort * port, tbm_bufmgr  bufMgr, int eCompressionFormat);
 #endif
@@ -460,7 +460,7 @@ gboolean          gst_omx_port_is_enabled (GstOMXPort * port);
 
 void              gst_omx_set_default_role (GstOMXClassData *class_data, const gchar *default_role);
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
 
 /*MFC Buffer alignment macros*/
 #define S5P_FIMV_DEC_BUF_ALIGN                  (8 * 1024)

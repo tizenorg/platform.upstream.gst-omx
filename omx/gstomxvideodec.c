@@ -133,11 +133,7 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
       "video/x-raw, "
       "width = " GST_VIDEO_SIZE_RANGE ", "
 	  "height = " GST_VIDEO_SIZE_RANGE ", " "framerate = " GST_VIDEO_FPS_RANGE ", "
-#ifdef EXYNOS_SPECIFIC
-      "format = (string)ST12";
-#else
       "format = (string)SN12";
-#endif
 }
 
 static void
@@ -151,7 +147,7 @@ gst_omx_video_dec_init (GstOMXVideoDec * self)
   g_mutex_init (&self->drain_lock);
   g_cond_init (&self->drain_cond);
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
   self->hTBMBufMgr = NULL;
   self->drm_fd = -1;
 #endif
@@ -210,7 +206,7 @@ gst_omx_video_dec_open (GstVideoDecoder * decoder)
   if (!self->dec_in_port || !self->dec_out_port)
     return FALSE;
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
 
    self->hTBMBufMgr = tbm_bufmgr_init(self->drm_fd);
    if(self->hTBMBufMgr == NULL){
@@ -316,7 +312,7 @@ gst_omx_video_dec_shutdown (GstOMXVideoDec * self)
       gst_omx_component_get_state (self->dec, 5 * GST_SECOND);
   }
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
    /* uninitialize tbm buffer manager */
    if(self->hTBMBufMgr != NULL){
     tbm_bufmgr_deinit(self->hTBMBufMgr);
@@ -517,7 +513,7 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
 #endif  //ENS:a
 
   /* Different strides */
-#ifndef GST_TIZEN_MODIFICATION
+#ifndef TIZEN_FEATURE_OMX
   if (gst_video_frame_map (&frame, vinfo, outbuf, GST_MAP_WRITE)) {
 #endif
   const guint nstride = port_def->format.video.nStride;
@@ -574,7 +570,7 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
     case GST_VIDEO_FORMAT_ST12:{
       GstMemory *mem_imgb = NULL;
       void *imgb_data = NULL;
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
       MMVideoBuffer *mm_vbuffer = NULL;
       mm_vbuffer = (MMVideoBuffer*)(inbuf->omx_buf->pBuffer);
       mm_vbuffer->type = MM_VIDEO_BUFFER_TYPE_TBM_BO;
@@ -603,7 +599,7 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
           imgb_data = imgb_info.data;
           gst_memory_unmap(mem_imgb, &imgb_info);
       }
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
         memcpy(imgb_data, mm_vbuffer, sizeof(MMVideoBuffer));
 #endif
         ret = TRUE;
@@ -631,7 +627,7 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
       src += src_size[p];
     }
 
-#ifndef GST_TIZEN_MODIFICATION
+#ifndef TIZEN_FEATURE_OMX
     gst_video_frame_unmap (&frame);
     ret = TRUE;
   } else {
@@ -900,7 +896,7 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
       }
       was_enabled = FALSE;
     }
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
     err = gst_omx_port_tbm_allocate_dec_buffers(port, self->hTBMBufMgr,
       self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
@@ -936,7 +932,7 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
           goto done;
         }
       }
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
       err = gst_omx_port_tbm_allocate_dec_buffers(port, self->hTBMBufMgr,
           self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
@@ -1867,7 +1863,7 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
   GstVideoFormat format;
   GstStructure *s;
   const gchar *format_str;
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
   gchar *format_tmp;
   int i;
   EnableGemBuffersParams gemBuffers;
@@ -1970,7 +1966,7 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
   /* set plateform specific gem buffer settings. */
 
     /* Set platform specific buffer settings. to avoid plane support error.. */
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
   OMX_INIT_STRUCTURE(gemBuffers);
   gemBuffers.enable = OMX_TRUE;
   gemBuffers.nPortIndex = 1;
@@ -2174,7 +2170,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   if (needs_disable) {
     if (gst_omx_port_set_enabled (self->dec_in_port, TRUE) != OMX_ErrorNone)
       return FALSE;
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
     if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_in_port, self->hTBMBufMgr, 0) != OMX_ErrorNone)
      return FALSE;
 #else
@@ -2217,7 +2213,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
         return FALSE;
 
       /* Need to allocate buffers to reach Idle state */
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
       if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_in_port, self->hTBMBufMgr, 0) != OMX_ErrorNone)
           return FALSE;
       if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_out_port, self->hTBMBufMgr,
@@ -2236,7 +2232,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
         return FALSE;
 
       /* Need to allocate buffers to reach Idle state */
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
       if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_in_port, self->hTBMBufMgr, 0) != OMX_ErrorNone)
           return FALSE;
       if(gst_omx_port_tbm_allocate_dec_buffers(self->dec_out_port, self->hTBMBufMgr,
@@ -2460,7 +2456,7 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
         GST_VIDEO_DECODER_STREAM_LOCK (self);
         goto reconfigure_error;
       }
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
       err = gst_omx_port_tbm_allocate_dec_buffers(port, self->hTBMBufMgr,
           self->dec_in_port->port_def.format.video.eCompressionFormat);
 #else
@@ -2516,7 +2512,7 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
       buf->omx_buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
       buf->omx_buf->nFilledLen = gst_buffer_get_size (codec_data);;
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
       gst_buffer_extract (codec_data, 0,
           buf->mm_vbuffer->data[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
@@ -2551,7 +2547,7 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
         MIN (size - offset, buf->omx_buf->nAllocLen - buf->omx_buf->nOffset);
     GST_DEBUG_OBJECT (self, "nFilledLen %d, %p", buf->omx_buf->nFilledLen, buf->omx_buf->pBuffer);
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
      gst_buffer_extract (frame->input_buffer, offset,
           buf->mm_vbuffer->data[0] + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);

@@ -1637,7 +1637,7 @@ gst_omx_port_allocate_buffers_unlocked (GstOMXPort * port,
     buf->used = FALSE;
     buf->settings_cookie = port->settings_cookie;
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
       buf->mm_vbuffer = (MMVideoBuffer*) l->data;
 #endif
 
@@ -1708,7 +1708,7 @@ gst_omx_port_allocate_buffers (GstOMXPort * port)
   return err;
 }
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
 /* NOTE: Uses comp->lock and comp->messages_lock */
 OMX_ERRORTYPE
 gst_omx_port_tbm_allocate_dec_buffers (GstOMXPort * port, tbm_bufmgr bufMgr, int eCompressionFormat)
@@ -1901,7 +1901,7 @@ gst_omx_port_deallocate_buffers_unlocked (GstOMXPort * port)
           "port %u", buf, comp->name, port->index);
     }
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
     /* deallocate tbm buffers */
     if(buf->mm_vbuffer != NULL) {
         gst_omx_tbm_deallocate_bo(buf->mm_vbuffer->handle.bo[0]);
@@ -2618,7 +2618,7 @@ gst_omx_set_default_role (GstOMXClassData * class_data,
     class_data->component_role = default_role;
 }
 
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
 
 int new_calc_plane(int width, int height)
 {

@@ -30,10 +30,7 @@ cp %{SOURCE1001} .
 %build
 ./autogen.sh --noconfigure
 
-export CFLAGS+=" -DGST_TIZEN_MODIFICATION"
-%if "%profile" == "wearable"
-export CFLAGS+=" -DEXYNOS_SPECIFIC"
-%endif
+export CFLAGS+=" -DTIZEN_FEATURE_OMX"
 
 %ifarch aarch64
 %configure --disable-static --prefix=/usr --with-omx-target=exynos64

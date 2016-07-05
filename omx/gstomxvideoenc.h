@@ -76,7 +76,7 @@ struct _GstOMXVideoEnc
   guint32 quant_b_frames;
 
   GstFlowReturn downstream_flow_ret;
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
   gint drm_fd;
   tbm_bufmgr hTBMBufMgr;
 #endif

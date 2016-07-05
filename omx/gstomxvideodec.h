@@ -91,7 +91,7 @@ struct _GstOMXVideoDec
   gboolean draining;
 
   GstFlowReturn downstream_flow_ret;
-#ifdef GST_TIZEN_MODIFICATION
+#ifdef TIZEN_FEATURE_OMX
   gint drm_fd;
   tbm_bufmgr hTBMBufMgr;
 #endif
